@@ -1,0 +1,8 @@
+ansatz:
+  type: "HardwareEfficientAnsatz"
+  topology: "2D_Square_Lattice"
+  max_depth: 50
+  num_layers: 8
+  entanglement_gate: "CZ" # or CNOT / RZZ
+  single_qubit_rotations: ["RY", "RZ"]
+  periodic_boundary: false

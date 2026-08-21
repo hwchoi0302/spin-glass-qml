@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spin-glass-qml"
+version = "0.1.0"
+description = "Simulating 2D Spin Glass Dynamics via Backpropagating Pauli Circuit Compression & Quantum Advantage Verification"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "qiskit>=1.1.0",
+    "qiskit-aer>=0.14.0",
+    "qiskit-ibm-runtime>=0.23.0",
+    "numpy>=1.26.0",
+    "scipy>=1.12.0",
+    "torch>=2.2.0",
+    "opt_einsum>=3.3.0",
+    "pandas>=2.2.0",
+    "h5py>=3.10.0",
+    "pyyaml>=6.0.1",
+    "matplotlib>=3.8.0",
+    "seaborn>=0.13.0",
+    "tqdm>=4.66.0",
+    "rich>=13.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
