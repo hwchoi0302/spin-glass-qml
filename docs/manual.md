@@ -94,12 +94,12 @@ print(f'Model saved: {model.num_qubits}q, {model.num_bonds} bonds')
 
 ## 2. 타겟 데이터 생성 (Julia SPD)
 
-정밀 Trotter 회로 (dt=0.01, 2차)를 통해 local observable을 파울리 전파하여
-타겟 SPO를 생성합니다.
+정밀 Trotter 회로 (4차 Suzuki-Trotter, dt=0.001, cutoff=1e-8)를 통해 local observable을
+파울리 전파하여 타겟 SPO를 생성합니다. 이 파라미터는 BP-PPS 논문과 동일합니다.
 
 $$\tilde{X}_i(\Delta t) = V^\dagger X_i V = \sum_P \tilde{a}_P P$$
 
-여기서 $V = \text{Trotter}(\Delta t, dt=0.01)$.
+여기서 $V = \text{Trotter}_{S_4}(\Delta t, dt=0.001)$.
 
 ```bash
 julia --project=julia julia/scripts/train_4x4.jl
@@ -117,8 +117,16 @@ julia --project=julia julia/scripts/train_4x4.jl
 ### 출력 파일
 - `results/4x4/targets_dt0.5.json` — 32개 observable (X_1~X_16, Z_1~Z_16)의 SPO
 
-### 예상 소요 시간 (RTX 2060)
-- ~5-15분 (16큐비트, 32 observable, 50 Trotter steps × ~56 gates/step)
+### 예상 소요 시간 (RTX 2060 데스크톱)
+
+| 항목 | 게이트 수 | 예상 시간 |
+|:---|:---|:---|
+| 타겟 1개 생성 | 140,000 | ~5-15분 |
+| 32개 전체 (직렬) | 4,480,000 | ~2-8시간 |
+| 32개 전체 (8코어 병렬) | — | ~20-60분 |
+
+> [!TIP]
+> 각 observable은 독립적이므로 Julia의 `Threads.@threads` 로 병렬화 가능.
 
 ---
 
@@ -128,7 +136,8 @@ julia --project=julia julia/scripts/train_4x4.jl
 
 $$\mathcal{L}_{X,Z} = \sum_{G \in \{X_i, Z_i\}} \sum_P \left(a_P^{(\text{HVA})} - \tilde{a}_P^{(\text{target})}\right)^2$$
 
-Gradient는 **Zygote.jl**의 자동 미분으로 계산됩니다.
+Gradient는 **BP-PPS 역전파 (Eq. 20-21)**로 계산됩니다.
+Zygote AD가 아닌 역게이트 재구성 알고리즘으로, 메모리 $O(N_P)$ 만 사용합니다.
 
 ```bash
 # 2단계와 함께 실행됨 (train_4x4.jl에 포함)
@@ -141,17 +150,22 @@ julia --project=julia julia/scripts/train_4x4.jl
 |:---|:---|:---|
 | HVA layers | 3 | RX + RZZ × 4 substeps = depth 15 |
 | 파라미터 수 | 120 | 3 × (16 + 24) |
-| Optimizer | L-BFGS | 2차 최적화 |
+| Optimizer | Adam | lr=0.01, β₁=0.9, β₂=0.999 |
 | cutoff_train | 1e-4 | 훈련 중 SPO 절단 |
 | Epochs | 200 | |
+| Gradient | BP-PPS Eq. 20-21 | O(N_P) 메모리 |
 
 ### 출력 파일
 - `results/4x4/trained_params.json` — 최적화된 120개 파라미터
 - `results/4x4/gs_trained_params.json` — 바닥상태 훈련 파라미터
 
-### 예상 소요 시간 (RTX 2060)
-- 시간진화: ~20-60분 (200 iterations)
-- 바닥상태: ~10-30분 (100 iterations)
+### 예상 소요 시간 (RTX 2060 데스크톱)
+- 시간진화: ~1-5분 (200 epochs, HVA 120 gates/fwd+bwd)
+- 바닥상태: ~1-3분 (100 epochs)
+
+> [!NOTE]
+> 훈련은 타겟 생성보다 훨씬 빠릅니다. HVA는 120 gates밖에 안 되고
+> cutoff=1e-4로 SPO 크기도 작습니다.
 
 ---
 
@@ -377,7 +391,7 @@ python scripts/02_run_hardware.py  # 추후 작성
 julia --project=julia -e '
 using Pkg
 Pkg.add(url="https://github.com/MSRudolph/PauliPropagation.jl")
-Pkg.add(["Zygote", "Optim", "JSON"])
+Pkg.add(["Optim", "JSON"])
 '
 ```
 
@@ -388,3 +402,41 @@ Pkg.add(["Zygote", "Optim", "JSON"])
 ### Zygote gradient 오류
 - `min_abs_coeff` (cutoff) 값을 높여 SPO 항 수 줄이기
 - `cutoff=1e-3` 으로 시작하여 수렴 후 `1e-4`로 줄이기
+
+---
+
+## 대규모 (100큐비트) 계산 비용 추정
+
+### 타겟 생성 (10×10, H200×2 서버)
+
+| 항목 | 4×4 (16q) | 10×10 (100q) |
+|:---|:---|:---|
+| 본드 수 | 24 | 180 |
+| S₄ step 당 게이트 | 280 | 1,900 |
+| Total 게이트 (500 steps) | 140,000 | 950,000 |
+| Observable 수 | 32 | 200 |
+| 총 게이트 적용 | 4.5M | 190M |
+| SPO 항 수 (추정) | 1K-10K | 10K-1M |
+| 예상 시간 (병렬) | 20-60분 | 3-7일 |
+| 메모리 (per SPO) | 1-10 MB | 100MB-10GB |
+| 총 메모리 | < 1 GB | < 282 GB (H200×2) |
+| **실행 가능성** | ✅ RTX 2060 | ✅ H200×2 |
+
+### 훈련 (BP-PPS backward, H200×2 서버)
+
+| 항목 | 4×4 (16q) | 10×10 (100q) |
+|:---|:---|:---|
+| HVA 게이트 수 | 120 | 840 |
+| SPO 항 수 (cutoff=1e-4) | 100-1K | 1K-10K |
+| Epoch 시간 | ~0.1-1s | ~10-100s |
+| 200 epochs | ~1-5분 | ~30분-6시간 |
+| **실행 가능성** | ✅ RTX 2060 | ✅ H200×2 |
+
+> [!WARNING]
+> 100큐비트 스핀 유리는 균일한 TFI 모델보다 SPO 성장이 빠를 수 있습니다.
+> 실제 실행 시 SPO 크기를 모니터링하고, 필요하면 cutoff를 높이세요.
+
+> [!TIP]
+> **최적화 전략**: 타겟 생성 시 `max_weight` 절단도 함께 사용하면
+> 높은 Pauli weight의 항을 조기에 제거하여 SPO 크기를 더 억제할 수 있습니다.
+
