@@ -38,7 +38,15 @@ class HVA:
         self._classify_bonds()
 
     def _classify_bonds(self) -> None:
-        """Classify bonds into 4 substeps for brickwork pattern."""
+        """Classify bonds into 4 parallel substeps (square lattice coloring).
+
+        For a 2D square lattice, 2-qubit gates are partitioned into 4 groups
+        such that no two gates in the same group share a qubit:
+            1: Even horizontal (x even)
+            2: Odd horizontal  (x odd)
+            3: Even vertical   (y even)
+            4: Odd vertical    (y odd)
+        """
         self.substep_bonds = {1: [], 2: [], 3: [], 4: []}
         
         for idx, (i, j) in enumerate(self.bonds):
@@ -94,7 +102,7 @@ class HVA:
             for i in range(self.num_qubits):
                 qc.rx(params[layer_start + i], i)
                 
-            # 2. RZZ in brickwork pattern (4 substeps)
+            # 2. RZZ in 4 parallel substeps (square lattice coloring)
             for step in range(1, 5):
                 for bond_idx, i, j in self.substep_bonds[step]:
                     param_idx = layer_start + self.num_qubits + bond_idx

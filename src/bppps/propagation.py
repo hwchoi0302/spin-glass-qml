@@ -250,13 +250,13 @@ def build_hva_gate_sequence(num_qubits: int, bonds: list,
                             params: np.ndarray) -> list:
     """Build gate sequence for HVA circuit.
 
-    Gate order per layer: RX on all qubits, then RZZ in 4 brickwork substeps.
+    Gate order per layer: RX on all qubits, then RZZ in 4 square lattice substeps.
     This matches the HVA.build_circuit() method.
 
     Args:
         num_qubits: Number of qubits.
         bonds: List of (i, j) bond tuples.
-        substep_bonds: Dict {1..4: [(bond_idx, i, j), ...]} for brickwork.
+        substep_bonds: Dict {1..4: [(bond_idx, i, j), ...]} for square lattice coloring.
         n_layers: Number of HVA layers.
         params: Parameter array of shape (n_params,).
 
@@ -275,7 +275,7 @@ def build_hva_gate_sequence(num_qubits: int, bonds: list,
             pidx = offset + q
             sequence.append(('rx', q, float(params[pidx]), pidx))
 
-        # RZZ gates in brickwork substeps (same order as HVA.build_circuit)
+        # RZZ gates in 4 square lattice substeps (same order as HVA.build_circuit)
         for step in range(1, 5):
             for bond_idx, i, j in substep_bonds[step]:
                 pidx = offset + num_qubits + bond_idx

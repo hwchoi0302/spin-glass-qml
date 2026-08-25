@@ -170,8 +170,8 @@ def test_7_trotter_vs_ed():
     ed = ExactDiag(H, model.num_qubits)
 
     trotter = TrotterCircuit(
-        num_qubits=model.num_qubits, bonds=model.bonds,
-        J=model.J, h=model.h, Lx=2, Ly=2,
+        hamiltonian_op=model.get_pauli_terms(),
+        num_qubits=model.num_qubits,
     )
 
     psi0 = np.zeros(2**4)
@@ -203,8 +203,8 @@ def test_8_trotter_dt_comparison():
     ed = ExactDiag(H, model.num_qubits)
 
     trotter = TrotterCircuit(
-        num_qubits=model.num_qubits, bonds=model.bonds,
-        J=model.J, h=model.h, Lx=2, Ly=2,
+        hamiltonian_op=model.get_pauli_terms(),
+        num_qubits=model.num_qubits,
     )
 
     psi0 = np.zeros(2**4)

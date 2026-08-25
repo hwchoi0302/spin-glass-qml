@@ -1,0 +1,10 @@
+[deps]
+PauliPropagation = "9b646c24-87cf-4545-a740-42862cfa0ee3"
+Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
+Optim = "429524aa-3425-5224-a107-443f5b5977c2"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+
+[compat]
+julia = "1.10"
