@@ -110,9 +110,9 @@ julia --project=julia julia/scripts/train_4x4.jl
 | 파라미터 | 값 | 설명 |
 |:---|:---|:---|
 | Δt | 0.5 | 시간 청크 (composition용) |
-| dt_fine | 0.01 | 타겟 Trotter 정밀도 |
-| cutoff_target | 1e-6 | 타겟 SPO 절단 임계값 |
-| Trotter order | 2 | Suzuki-Trotter 2차 |
+| dt_fine | 0.001 | 타겟 Trotter 정밀도 (논문: 0.001) |
+| cutoff_target | 1e-8 | 타겟 SPO 절단 임계값 (논문: 1e-8) |
+| Trotter order | 4 | 4차 Suzuki-Trotter (논문: 4차) |
 
 ### 출력 파일
 - `results/4x4/targets_dt0.5.json` — 32개 observable (X_1~X_16, Z_1~Z_16)의 SPO

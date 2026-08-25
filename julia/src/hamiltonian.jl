@@ -130,27 +130,49 @@ end
 """Number of HVA parameters per layer."""
 hva_params_per_layer(n_qubits::Int, n_bonds::Int) = n_qubits + n_bonds
 
+"""Build one 2nd-order Suzuki-Trotter step (helper for 4th order)."""
+function _trotter_2nd_order_step!(
+    gates, n_qubits::Int, bonds, substeps,
+    J::Vector{Float64}, h::Float64, dt::Float64
+)
+    # H_X half step
+    for q in 1:n_qubits
+        gen = PauliString(n_qubits, [:X], [q])
+        push!(gates, PauliRotation(-h * dt, gen))
+    end
+    # H_ZZ full step
+    for step in 1:4
+        for bond_idx in substeps[step]
+            i, j = bonds[bond_idx]
+            gen = PauliString(n_qubits, [:Z, :Z], [i, j])
+            push!(gates, PauliRotation(-2.0 * J[bond_idx] * dt, gen))
+        end
+    end
+    # H_X half step
+    for q in 1:n_qubits
+        gen = PauliString(n_qubits, [:X], [q])
+        push!(gates, PauliRotation(-h * dt, gen))
+    end
+end
+
 """Build Trotter gate sequence (fixed angles, non-trainable).
 
-2nd-order Suzuki-Trotter: exp(-iH_X dt/2) · exp(-iH_ZZ dt) · exp(-iH_X dt/2)
-Each exp(-iαP) = PauliRotation(2α, P) since PauliRotation(θ,P) = exp(-iθP/2).
+Supports order = 1 (Lie-Trotter), 2 (Suzuki-Trotter), 4 (4th-order).
+4th-order: S₄(dt) = S₂(p·dt)² · S₂((1-4p)·dt) · S₂(p·dt)²
+where p = 1/(4 - 4^{1/3}).
 
-For H_X term -h X_i:  exp(-i(-h X_i)dt) = exp(ihX_i dt)
-    → PauliRotation(-2h·dt, X_i)
-
-For H_ZZ term -J_ij Z_iZ_j: exp(-i(-J_ij Z_iZ_j)dt) = exp(iJ_ij Z_iZ_j dt)
-    → PauliRotation(-2J_ij·dt, Z_iZ_j)
+Convention: PauliRotation(θ, P) = exp(-iθP/2).
 """
 function build_trotter_gates(
     n_qubits::Int, bonds, substeps,
     J::Vector{Float64}, h::Float64,
     dt::Float64, n_steps::Int;
-    order::Int=2
+    order::Int=4
 )
     gates = []
     for _ in 1:n_steps
         if order == 1
-            # H_ZZ part
+            # 1st order: exp(-iH_ZZ dt) · exp(-iH_X dt)
             for step in 1:4
                 for bond_idx in substeps[step]
                     i, j = bonds[bond_idx]
@@ -158,32 +180,27 @@ function build_trotter_gates(
                     push!(gates, PauliRotation(-2.0 * J[bond_idx] * dt, gen))
                 end
             end
-            # H_X part
             for q in 1:n_qubits
                 gen = PauliString(n_qubits, [:X], [q])
                 push!(gates, PauliRotation(-2.0 * h * dt, gen))
             end
 
         elseif order == 2
-            # H_X half step
-            for q in 1:n_qubits
-                gen = PauliString(n_qubits, [:X], [q])
-                push!(gates, PauliRotation(-h * dt, gen))
-            end
-            # H_ZZ full step
-            for step in 1:4
-                for bond_idx in substeps[step]
-                    i, j = bonds[bond_idx]
-                    gen = PauliString(n_qubits, [:Z, :Z], [i, j])
-                    push!(gates, PauliRotation(-2.0 * J[bond_idx] * dt, gen))
-                end
-            end
-            # H_X half step
-            for q in 1:n_qubits
-                gen = PauliString(n_qubits, [:X], [q])
-                push!(gates, PauliRotation(-h * dt, gen))
-            end
+            _trotter_2nd_order_step!(gates, n_qubits, bonds, substeps, J, h, dt)
+
+        elseif order == 4
+            # 4th-order Suzuki-Trotter
+            p = 1.0 / (4.0 - 4.0^(1.0/3.0))
+            _trotter_2nd_order_step!(gates, n_qubits, bonds, substeps, J, h, dt * p)
+            _trotter_2nd_order_step!(gates, n_qubits, bonds, substeps, J, h, dt * p)
+            _trotter_2nd_order_step!(gates, n_qubits, bonds, substeps, J, h, dt * (1.0 - 4.0*p))
+            _trotter_2nd_order_step!(gates, n_qubits, bonds, substeps, J, h, dt * p)
+            _trotter_2nd_order_step!(gates, n_qubits, bonds, substeps, J, h, dt * p)
+
+        else
+            error("Unsupported Trotter order: $(order). Use 1, 2, or 4.")
         end
     end
     return gates
 end
+

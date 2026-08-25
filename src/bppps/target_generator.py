@@ -37,8 +37,8 @@ class TargetGenerator:
         self.J = J
         self.h = h
 
-    def generate(self, delta_t: float, dt_trotter: float = 0.01,
-                 order: int = 2, delta: float = 1e-6,
+    def generate(self, delta_t: float, dt_trotter: float = 0.001,
+                 order: int = 2, delta: float = 1e-8,
                  observables: str = 'XZ',
                  verbose: bool = True) -> Dict[str, SPO]:
         """Generate target SPOs for all local observables.
