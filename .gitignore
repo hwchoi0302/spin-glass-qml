@@ -54,3 +54,6 @@ data/processed/*.npy
 
 # Environment variables
 .env
+
+# Large target SPO files (>50MB)
+results/*/targets_*.json

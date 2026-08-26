@@ -284,6 +284,29 @@ def build_hva_gate_sequence(num_qubits: int, bonds: list,
     return sequence
 
 
+def _append_s2_step(sequence: list, num_qubits: int, substep_bonds: dict,
+                    J: np.ndarray, h: float, tau: float) -> None:
+    """Append one 2nd-order Suzuki-Trotter step S2(τ) to the sequence.
+
+    S2(τ) = exp(-iH_X τ/2) · exp(-iH_ZZ τ) · exp(-iH_X τ/2)
+
+    This is a helper used by both order=2 and order=4 Trotter builders.
+    """
+    # exp(-iH_X τ/2): RX(-2h·τ/2) = RX(-h·τ)
+    for q in range(num_qubits):
+        theta = -h * tau
+        sequence.append(('rx', q, theta, -1))
+    # exp(-iH_ZZ τ): RZZ(-2J_ij·τ)
+    for s in range(1, 5):
+        for bond_idx, i, j in substep_bonds[s]:
+            theta = -2.0 * J[bond_idx] * tau
+            sequence.append(('rzz', i, j, theta, -1))
+    # exp(-iH_X τ/2): RX(-h·τ)
+    for q in range(num_qubits):
+        theta = -h * tau
+        sequence.append(('rx', q, theta, -1))
+
+
 def build_trotter_gate_sequence(num_qubits: int, substep_bonds: dict,
                                 J: np.ndarray, h: float,
                                 dt: float, n_steps: int,
@@ -295,6 +318,13 @@ def build_trotter_gate_sequence(num_qubits: int, substep_bonds: dict,
 
     For Hamiltonian H = -Σ J_ij Z_i Z_j - h Σ X_i:
         exp(-iH dt) ≈ product of RX(-2h·dt) and RZZ(-2J_ij·dt)
+
+    Supported orders:
+        1: Lie-Trotter (1st order)
+        2: 2nd-order Suzuki-Trotter
+        4: 4th-order Suzuki-Trotter
+           S4(dt) = S2(p·dt)² · S2((1-4p)·dt) · S2(p·dt)²
+           where p = 1 / (4 - 4^(1/3))
     """
     sequence = []
 
@@ -310,17 +340,22 @@ def build_trotter_gate_sequence(num_qubits: int, substep_bonds: dict,
                 sequence.append(('rx', q, theta, -1))
 
         elif order == 2:
-            # 2nd order: exp(-iH_X dt/2) · exp(-iH_ZZ dt) · exp(-iH_X dt/2)
-            for q in range(num_qubits):
-                theta = -h * dt  # = -2h·(dt/2)
-                sequence.append(('rx', q, theta, -1))
-            for s in range(1, 5):
-                for bond_idx, i, j in substep_bonds[s]:
-                    theta = -2.0 * J[bond_idx] * dt
-                    sequence.append(('rzz', i, j, theta, -1))
-            for q in range(num_qubits):
-                theta = -h * dt
-                sequence.append(('rx', q, theta, -1))
+            _append_s2_step(sequence, num_qubits, substep_bonds, J, h, dt)
+
+        elif order == 4:
+            # 4th-order Suzuki-Trotter:
+            # S4(dt) = S2(p·dt) · S2(p·dt) · S2((1-4p)·dt) · S2(p·dt) · S2(p·dt)
+            p = 1.0 / (4.0 - 4.0 ** (1.0 / 3.0))
+            tau_outer = p * dt
+            tau_inner = (1.0 - 4.0 * p) * dt
+            _append_s2_step(sequence, num_qubits, substep_bonds, J, h, tau_outer)
+            _append_s2_step(sequence, num_qubits, substep_bonds, J, h, tau_outer)
+            _append_s2_step(sequence, num_qubits, substep_bonds, J, h, tau_inner)
+            _append_s2_step(sequence, num_qubits, substep_bonds, J, h, tau_outer)
+            _append_s2_step(sequence, num_qubits, substep_bonds, J, h, tau_outer)
+
+        else:
+            raise ValueError(f"Unsupported Trotter order: {order}. Use 1, 2, or 4.")
 
     return sequence
 
