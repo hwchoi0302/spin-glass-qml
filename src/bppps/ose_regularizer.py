@@ -1,7 +1,7 @@
 """Operator Stabilizer Entropy (OSE) regularization.
 
 OSE controls the complexity (sparsity) of the evolved Pauli operator.
-Uses Shannon entropy (α=1) as specified by user decision.
+Uses Shannon entropy (alpha=1) as specified by user decision.
 
 For SPO O = Σ_P a_P P with ||O||² = Σ_P a_P² = 1 (unit observable):
     M^[1](O) = -Σ_P a_P² log(a_P²)
