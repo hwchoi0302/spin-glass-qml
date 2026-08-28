@@ -57,3 +57,6 @@ data/processed/*.npy
 
 # Large target SPO files (>50MB)
 results/*/targets_*.json
+
+# Generated hardware circuits (regenerable via scripts/01_build_hw_circuits.py)
+results/*/*.qasm

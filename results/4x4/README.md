@@ -2,6 +2,20 @@
 
 This directory contains the simulation outputs, exact diagonalization benchmarks, variational training data, and figures for the 4×4 (16-qubit) Edwards-Anderson bimodal spin glass model ($H = -\sum_{\langle i,j \rangle} J_{ij} Z_i Z_j - h \sum_i X_i$).
 
+> [!CAUTION]
+> **Data validity as of 2026-08-28.** These outputs were produced before a gate
+> ordering bug in the Pauli propagation engine was found and fixed.
+>
+> | File | Status |
+> |:---|:---|
+> | `model_config.json`, `ed_results.json`, `trotter_results.json` | valid |
+> | `targets_dt0.5.json` | valid (the Trotter sequence is palindromic, so the bug left it unchanged) |
+> | `trained_params.json`, `composition_fidelity.json` | valid; retraining is nevertheless recommended |
+> | `gs_trained_params.json`, `gs_multi_layer.json` | **invalid** — the optimiser targeted `U(theta)^dag \|0>` instead of `U(theta)\|0>` |
+> | plots 04(b), 05, 08, 10, 11 | **invalid** — derived from the ground-state data |
+>
+> See `docs/extended_visualization.md` for the full diagnosis.
+
 ## Overview of Figures
 
 | Figure | Description |

@@ -1,13 +1,45 @@
+# Classical optimisation of the HVA parameters via BP-PPS gradients.
 optimizer:
+  # Stage 1: Adam for the initial descent.
   stage1:
     name: "Adam"
     learning_rate: 0.01
-    epochs: 100
+    epochs: 200
+    beta1: 0.9
+    beta2: 0.999
+    eps: 1.0e-8
+  # Stage 2: L-BFGS-B refinement. BP-PPS gives exact analytic gradients, so a
+  # quasi-Newton polish is cheap and recovers the last digits Adam leaves.
   stage2:
+    enabled: true
     name: "L-BFGS-B"
     max_iter: 200
-    tolerance_grad: 1e-6
-  truncation:
-    initial_delta: 1e-4
-    min_delta: 1e-6
-    adaptive: true
+    tolerance_grad: 1.0e-6
+
+  # Ground-state preparation runs the same machinery with a different loss.
+  ground_state:
+    learning_rate: 0.05
+    epochs: 100
+
+  # Parameter initialisation.
+  #   trotter_warm_start: seed theta from a 1st-order Trotter circuit of the
+  #     same depth. The BP-PPS paper reports that random initialisation only
+  #     converges for 2-3 layers; deeper circuits need this.
+  #   random_scale: half-width of the uniform fallback initialiser.
+  init:
+    trotter_warm_start: true
+    random_scale: 0.1
+    seed: 42
+
+truncation:
+  # Coefficient threshold delta for the training-time SPD propagation.
+  initial_delta: 1.0e-3
+  min_delta: 1.0e-5
+  adaptive: true
+  # Tighten delta by `factor` whenever the tracked truncation-error estimate
+  # (BP-PPS Appendix B, Eq. B16) exceeds `error_ratio` x the current loss,
+  # i.e. whenever the reported loss is no longer trustworthy at its own scale.
+  factor: 0.1
+  error_ratio: 0.1
+  # Minimum epochs between two tightenings, so Adam can re-equilibrate.
+  patience: 10

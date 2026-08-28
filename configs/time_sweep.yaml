@@ -1,0 +1,36 @@
+# T1-T: time sweep. Finds the window where (a) SPD fails, (b) the compressed
+# circuit still fits the hardware budget, and (c) it is still accurate.
+# See docs/benchmark_plan.md section 0.
+time_sweep:
+  # Chunk length. Targets are produced at T = k * chunk_delta_t by propagating
+  # one chunk at a time and snapshotting, so the whole series costs the same as
+  # the largest k alone.
+  chunk_delta_t: 0.5
+  snapshots: [1, 2, 4, 8, 16]        # T = 0.5, 1, 2, 4, 8
+
+  # Trotter step for the sweep targets. Coarser than the target.dt used for the
+  # single-point T1 run (0.001) because S4 error scales as O(T * dt^4):
+  # at dt=0.01 and T=8 that is ~8e-8, already below the truncation floor, while
+  # being 10x cheaper. Stage 1 verifies this against the T1 target.
+  dt: 0.01
+  trotter_order: 4
+  cutoff: 1.0e-8
+
+  # Direct training: instead of composing the Delta_t block k times (depth
+  # linear in T, same scaling as Trotter), train U(theta; T) outright and find
+  # the smallest layer count reaching the accuracy target. This is where a
+  # sublinear depth-vs-T scaling would show up, if it exists.
+  direct_layers: [2, 3, 4, 6, 8]
+  accuracy_target: 0.99             # state fidelity vs exact evolution
+
+  # SPD self-convergence sweep (goal: locate the classical breakdown time t*).
+  delta_sweep: [1.0e-2, 1.0e-3, 1.0e-4, 1.0e-5]
+
+  # Energy conservation across initial product states (goal 1 diagnostic).
+  # <H> is conserved exactly, and for a bitstring state E(0) = -sum J_ij s_i s_j
+  # is known analytically, so this needs no classical reference at any size.
+  n_initial_states: 8
+  initial_state_seed: 7
+
+  # Hardware budget model used for the feasibility column.
+  two_qubit_gate_error: 3.0e-3

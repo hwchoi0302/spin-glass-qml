@@ -10,11 +10,11 @@
 
 ## 📌 Overview
 
-This repository provides an end-to-end framework to simulate **2D Spin Glass model dynamics and ground state preparation** by compressing deep Trotter circuits into shallow Hardware-Efficient Ansatze (HEA) on 2D square lattice processors (e.g., IBM Nighthawk).
+This repository provides an end-to-end framework to simulate **2D Spin Glass model dynamics and ground state preparation** by compressing deep Trotter circuits into a shallow Hamiltonian Variational Ansatz (HVA) on 2D square lattice processors (e.g., IBM Nighthawk).
 
 ### Key Methodologies
 1. **Train on Classical, Deploy on Quantum (TCDQ):** Perform parameter optimization classically, and leverage quantum processors exclusively for global entanglement sampling.
-2. **Backpropagating Pauli Propagation (BP-PPS):** Memory-efficient exact analytic gradients without storing state vectors, completely bypassing Barren Plateaus via local operator error tracking ($\mathcal{L}_{X,Z}$).
+2. **Backpropagating Pauli Propagation (BP-PPS):** memory-efficient analytic gradients that reconstruct intermediate operators from circuit reversibility instead of caching them, with barren plateaus avoided by optimising a local operator error rather than a global distribution distance.
 3. **Generative Quantum Advantage Verification:** Cross-validating quantum bitstrings against Classical Shadows and demonstrating OTOC decay beyond classical tensor network (PEPS) breakdown thresholds.
 
 ---
@@ -23,35 +23,48 @@ This repository provides an end-to-end framework to simulate **2D Spin Glass mod
 
 ```text
 spin-glass-qml/
-├── configs/                      # Experiment configuration YAMLs
-│   ├── model_2d_spinglass.yaml   # 2D lattice size (Lx, Ly), couplings, transverse field
-│   ├── ansatz_ibm.yaml           # HEA depth, layout, 2D topology
-│   └── optimizer.yaml            # Optimization hyperparameters (Adam, L-BFGS-B, truncation threshold)
+├── configs/                      # Every runtime setting lives here
+│   ├── model_2d_spinglass.yaml   # lattice size, couplings, transverse field
+│   ├── ansatz_ibm.yaml           # HVA layers, target Trotter, hardware Trotter
+│   ├── optimizer.yaml            # Adam -> L-BFGS-B, init strategy, truncation
+│   └── time_sweep.yaml           # T1-T sweep: times, layers, delta ladder
 │
-├── src/                          # Core Python modules
-│   ├── hamiltonians/             # 2D Spin Glass Hamiltonian with random frustration
-│   ├── ansatz/                   # SWAP-free HEA & benchmark Trotter circuits
-│   ├── bppps/                    # Pauli string manipulation & backpropagation engine
-│   ├── classical_bench/          # Exact diagonalization & Tensor Network baselines
-│   ├── hardware/                 # Qiskit IBM Runtime deployment & OTOC measurements
-│   └── validation/               # Classical Shadows & cross-validation metrics
+├── src/
+│   ├── config.py                 # YAML loader, --set overrides
+│   ├── hamiltonians/             # 2D spin glass H, frustration, bond colouring
+│   ├── ansatz/                   # HVA (RX + RZZ) and Qiskit Trotter circuits
+│   ├── bppps/                    # sparse Pauli dynamics + BP-PPS backward pass
+│   │   ├── propagation.py        #   Eqs. 6-8, 20-21, Appendix B error estimate
+│   │   ├── trainer.py            #   L_{X,Z} and energy losses, two-stage optimiser
+│   │   ├── target_generator.py   #   precision Trotter targets
+│   │   ├── warm_start.py         #   Trotter warm start (Sec. III B)
+│   │   └── ose_regularizer.py    #   operator stabilizer entropy (Eqs. 31-32)
+│   ├── classical_bench/          # exact diagonalisation baseline (<= 22 qubits)
+│   ├── hardware/                 # (planned) IBM Runtime deployment, OTOC
+│   └── validation/               # (planned) classical shadows cross-validation
 │
-├── scripts/                      # Pipeline execution scripts
-│   ├── 01_train_hea.py           # Phase 2: Classical BP-PPS optimization
-│   ├── 02_benchmark_classical.py # Phase 3: Classical benchmark comparison
-│   ├── 03_deploy_quantum.py      # Phase 4: IBM Quantum hardware execution
-│   └── 04_verify_advantage.py    # Phase 5: Sampling verification & advantage declaration
+├── scripts/
+│   ├── 00_validate_small.py      # 13 unit tests, incl. gradient vs finite diff
+│   ├── 00_build_model.py         # writes results/<Lx>x<Ly>/model_config.json
+│   ├── run_pipeline.py           # targets -> baselines -> training -> validation
+│   ├── 01_build_hw_circuits.py   # QASM for IBM hardware + depth comparison
+│   ├── 02_time_sweep.py          # T1-T: advantage-window search over T
+│   ├── 00_verify_targets.py      # spot-check a cached target series
+│   ├── plot_results.py           # figures 1-8
+│   └── plot_extended.py          # figures 9-11
 │
-├── data/                         # Experiment datasets & checkpoints (gitignored)
-│   ├── raw/
-│   └── processed/
+├── julia/                        # optional high-performance mirror
+│   ├── src/bppps_engine.jl       # port of propagation.py, dependency-free
+│   ├── src/trainer.jl            # port of trainer.py
+│   ├── scripts/check_env.jl      # validate the environment before a long run
+│   └── scripts/train.jl          # config-driven training driver
 │
-├── documents/                    # Research proposal & reports
-│   ├── report.md
-│   ├── report.tex
-│   └── report.pdf
-│
-└── tests/                        # Unit tests
+├── results/<Lx>x<Ly>/            # model_config.json, targets, params, figures
+├── documents/                    # research proposal, reference papers
+└── docs/
+    ├── RUNBOOK.md                # ← start here to run the simulations
+    ├── benchmark_plan.md         # the three goals and what each one claims
+    └── manual.md                 # pipeline reference
 ```
 
 ---
@@ -73,24 +86,52 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Running Pipeline
+### 2. Running the pipeline
+
+Everything is driven by `configs/*.yaml`; individual values can be overridden
+on the command line with `--set section.key=value`.
 
 ```bash
-# 1. Classical Parameter Optimization (BP-PPS)
-python scripts/01_train_hea.py --config configs/model_2d_spinglass.yaml
+# 0. Unit tests (seconds; includes a gradient check against finite differences)
+python scripts/00_validate_small.py
 
-# 2. Classical Benchmark Comparison
-python scripts/02_benchmark_classical.py
+# 1. Build the model. This is the ONLY place the couplings J are generated;
+#    every later stage, Python or Julia, loads the resulting JSON.
+python scripts/00_build_model.py
 
-# 3. Deploy on IBM Quantum Processor (requires IBM Quantum API token)
-python scripts/03_deploy_quantum.py --backend ibm_brisbane
+# 2. Targets -> classical baselines -> BP-PPS training -> validation
+python scripts/run_pipeline.py
+python scripts/run_pipeline.py --stages 3 4          # resume from training
+python scripts/run_pipeline.py --set ansatz.n_layers=5
 
-# 4. Verify Quantum Advantage & Plot OTOC
-python scripts/04_verify_advantage.py
+# 3. Figures
+python scripts/plot_results.py
+python scripts/plot_extended.py
+
+# 4. QASM circuits for hardware + the depth-compression table
+python scripts/01_build_hw_circuits.py --repeats 1 2 3 4 5
+
+# 5. T1-T: sweep the evolution time and look for the advantage window
+python scripts/02_time_sweep.py
 ```
+
+**Running the simulations?** Follow [`docs/RUNBOOK.md`](docs/RUNBOOK.md) — a
+self-contained procedure with pass/fail criteria at every step, resume
+instructions, and the tables to fill in when reporting results.
+
+Optional Julia path (faster for large targets):
+
+```bash
+julia --project=julia -e 'using Pkg; Pkg.instantiate()'
+julia --project=julia julia/scripts/check_env.jl      # run this first
+julia --project=julia julia/scripts/train.jl results/4x4
+```
+
+Stages 4 and 5 of the research plan — hardware deployment and advantage
+verification — are not implemented yet.
 
 ---
 
 ## 📄 Documentation
 
-For full mathematical derivations, references, and research phases, see [`documents/report.pdf`](documents/report.pdf) or [`documents/report.md`](documents/report.md).
+For full mathematical derivations, references, and research phases, see [`documents/spin-glass-qml-report.md`](documents/spin-glass-qml-report.md) and [`docs/manual.md`](docs/manual.md).
