@@ -1,10 +1,17 @@
 [deps]
-PauliPropagation = "9b646c24-87cf-4545-a740-42862cfa0ee3"
-Optim = "429524aa-3425-5224-a107-443f5b5977c2"
 JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
-Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Optim = "429524aa-3425-5224-a107-443f5b5977c2"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+
+# PauliPropagation.jl is an OPTIONAL accelerator for target generation and is
+# deliberately not listed above: it is not in the General registry, so listing
+# it here would make `Pkg.instantiate()` fail on a fresh machine. The code
+# guards the import and falls back to julia/src/bppps_engine.jl.
+# To enable the fast path:
+#   julia --project=julia -e 'using Pkg; Pkg.add(url="https://github.com/MSRudolph/PauliPropagation.jl")'
+#   julia --project=julia julia/scripts/check_env.jl
 
 [compat]
 julia = "1.10"

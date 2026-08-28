@@ -1,9 +1,19 @@
+# Target physical system: 2D transverse-field Ising spin glass
+#   H = - sum_<ij> J_ij Z_i Z_j - h sum_i X_i
+#
+# This file is the single source of truth for the lattice and the couplings.
+# scripts/00_build_model.py turns it into results/<Lx>x<Ly>/model_config.json,
+# which both the Python and the Julia pipeline load. Never regenerate J
+# independently on the Julia side: the RNGs differ.
 model:
   name: "2D_Transverse_Field_Ising_Spin_Glass"
   Lx: 4
   Ly: 4
-  num_qubits: 16
   transverse_field_h: 1.0
-  coupling_distribution: "bimodal" # +1 or -1 random sign (J_ij = +/- 1.0)
+  coupling_distribution: "ea_bimodal"   # ea_bimodal | villain | gaussian
   j_magnitude: 1.0
   seed: 42
+  periodic_boundary: false              # open boundaries (matches build_bonds)
+
+paths:
+  results_dir: "results/{Lx}x{Ly}"

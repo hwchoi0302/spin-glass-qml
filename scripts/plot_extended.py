@@ -21,10 +21,16 @@ from hamiltonians import SpinGlass2D
 from classical_bench import ExactDiag
 from ansatz import HVA, TrotterCircuit
 from bppps import BPPPSTrainer
+from bppps.warm_start import build_initial_params
 from bppps.pauli_utils import make_observable_label
 from qiskit.quantum_info import Statevector
 
-RESULTS_DIR = os.path.join(PROJECT_ROOT, 'results', '4x4')
+from config import load_config, output_dir  # noqa: E402
+
+CONFIG = load_config()
+RESULTS_DIR = output_dir(CONFIG, create=False)
+# Layer sweep for the low-energy state-preparation figure
+LAYER_SWEEP = [1, 2, 3, 4, 5]
 PLOT_DIR = os.path.join(RESULTS_DIR, 'plots')
 os.makedirs(PLOT_DIR, exist_ok=True)
 
@@ -141,45 +147,60 @@ def train_ground_state_multi_layers():
     print("Training ground state with different layer counts...")
     print("=" * 60)
 
-    # Build Hamiltonian SPO
+    # Build Hamiltonian SPO. This is the operator propagated forward in
+    # ground-state mode: in the Heisenberg picture the circuit is moved onto
+    # the observable, and the observable we want is H itself.
+    N = model.num_qubits
     ham_spo = {}
     for idx, (i, j) in enumerate(model.bonds):
-        label = ['I'] * 16
+        label = ['I'] * N
         label[i] = 'Z'; label[j] = 'Z'
         key = ''.join(label)
         ham_spo[key] = ham_spo.get(key, 0.0) - model.J[idx]
-    for q in range(16):
-        label = make_observable_label(16, 'X', q)
-        ham_spo[label] = ham_spo.get(label, 0.0) - 1.0
+    for q in range(N):
+        label = make_observable_label(N, 'X', q)
+        ham_spo[label] = ham_spo.get(label, 0.0) - model.h
 
     E0 = ed.ground_energy()
     print(f"  ED ground energy: {E0:.4f}")
 
-    layer_counts = [1, 2, 3, 4, 5]
+    opt = CONFIG['optimizer']
+    trunc = CONFIG['truncation']
+    delta_t = CONFIG['target']['delta_t']
+    layer_counts = LAYER_SWEEP
     all_results = {}
 
     for n_layers in layer_counts:
-        print(f"\n  --- {n_layers} layers ({n_layers * 40} params) ---")
-        hva_tmp = HVA(num_qubits=16, bonds=model.bonds,
-                      n_layers=n_layers, Lx=4, Ly=4)
+        n_params = n_layers * (N + model.num_bonds)
+        print(f"\n  --- {n_layers} layers ({n_params} params) ---")
+        hva_tmp = HVA(num_qubits=N, bonds=model.bonds,
+                      n_layers=n_layers, Lx=model.Lx, Ly=model.Ly, J=model.J)
 
         trainer = BPPPSTrainer(
-            num_qubits=16,
+            num_qubits=N,
             bonds=model.bonds,
             substep_bonds=hva_tmp.substep_bonds,
             n_layers=n_layers,
-            delta=1e-3,
-            lambda_ose=0.0,
+            delta=trunc['initial_delta'],
+            min_delta=trunc['min_delta'],
+            adaptive_delta=trunc['adaptive'],
+            delta_factor=trunc['factor'],
+            error_ratio=trunc['error_ratio'],
+            patience=trunc['patience'],
+            lambda_ose=opt.get('lambda_ose', 0.0),
             mode='ground_state',
             hamiltonian_spo=ham_spo,
         )
 
+        params_init, init_desc = build_initial_params(
+            n_params, opt['init'], N, model.bonds, model.J, model.h,
+            delta_t, n_layers)
+        print(f"  init: {init_desc}")
+
         t_start = time.time()
-        params, losses = trainer.train(
-            n_epochs=100,
-            lr=0.05,
-            verbose=True,
-        )
+        params, record = trainer.optimize(opt, params_init=params_init,
+                                          verbose=True)
+        losses = record['losses']
         elapsed = time.time() - t_start
 
         # Compute actual statevector energy
@@ -196,6 +217,8 @@ def train_ground_state_multi_layers():
             'fidelity': fid,
             'n_params': len(params),
             'time_s': elapsed,
+            'truncation_error_estimate': record['truncation_error_estimate'],
+            'final_delta': record['final_delta'],
         }
         print(f"    BP-PPS E = {losses[-1]:.4f}, SV E = {E_sv:.4f}, "
               f"F = {fid:.6f}, time = {elapsed:.1f}s")

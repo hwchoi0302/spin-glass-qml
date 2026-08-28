@@ -1,5 +1,20 @@
 # 4×4 Spin Glass QML — 시뮬레이션 결과 워크스루
 
+> [!CAUTION]
+> **2026-08-28 정정.** 이 문서가 기록한 실행은 파울리 전파 엔진에 게이트 순서
+> 관례 버그가 있는 상태에서 이뤄졌습니다. `propagate_forward` 가 게이트 목록을
+> 회로 순서대로 소비해, 실제로는 `U(θ)ᵀ` 를 전파하고 있었습니다.
+>
+> - **시간진화 결과는 유효합니다.** `H` 가 실대칭이라 `V = exp(-iHΔt)` 가
+>   complex-symmetric 이고, 타겟 Trotter 시퀀스도 palindromic 이어서
+>   `U_c^T ≈ V` 와 `U_c ≈ V` 가 같은 조건이 됩니다. 측정된 fidelity 0.9975 는
+>   실제 값입니다.
+> - **바닥상태 결과는 무효입니다.** 최적화가 배포될 상태 `U(θ)|0⟩` 가 아니라
+>   `U(θ)†|0⟩` 에 대해 이뤄졌습니다. 아래 "바닥상태" 절과
+>   `extended_visualization.md` 의 truncation-bias 설명은 원인 진단이 틀렸습니다.
+>
+> 수정 후 회귀 테스트(TEST 10·11·13)가 추가되었고, 바닥상태는 재실행이 필요합니다.
+
 ## 개요
 
 4×4 (16큐비트) 2D 스핀 유리 모델의 양자 시뮬레이션 파이프라인을 Python BP-PPS 엔진으로 전체 실행했습니다. 총 ~10.5시간 소요.
@@ -17,14 +32,15 @@
 
 ### 시뮬레이션 스크립트
 
-#### `scripts/run_4x4_simulation.py`
+#### `scripts/run_pipeline.py` (당시 이름 `run_4x4_simulation.py`)
 - Stage 1-4 전체 파이프라인 (타겟 생성 → ED 비교 → HVA 훈련 → 검증)
 
-#### `scripts/run_4x4_completion.py`
-- 바닥상태 훈련(cutoff=1e-3) + 최종 검증 마무리 스크립트
-
-#### `scripts/plot_4x4_results.py` & `scripts/plot_4x4_extended.py`
+#### `scripts/plot_results.py` & `scripts/plot_extended.py`
 - 논문급 시각화 생성 스크립트 (총 11개 그림)
+
+> [!NOTE]
+> 스크립트 이름과 인터페이스는 이후 설정 기반으로 재구성되었습니다.
+> 현재 사용법은 [manual.md](manual.md) 를 보세요.
 
 ---
 
@@ -116,7 +132,14 @@ Epoch 200: loss= 0.049  |grad|= 0.09   ← 안정적 수렴
 | $\|\Delta E\|$ | 0.083 |
 
 > [!TIP]
-> **Fidelity 0.9975**는 3-layer HVA (depth=15)로 500-step $S_4$ Trotter (depth~28,000)를 압축한 것으로, **회로 깊이를 ~1,867배 줄이면서 99.75% fidelity**를 달성한 것입니다.
+> **Fidelity 0.9975** 는 3-layer HVA (depth 16, 2Q 게이트 72개) 가 달성한 값입니다.
+>
+> 압축률은 **하드웨어에서 실행 가능한 회로** 와 비교해야 합니다. 같은 $t = 0.5$ 에서
+> 2차 Trotter($dt = 0.1$, depth 71, 2Q 240개) 대비 **깊이 4.4배 / 2큐빗 게이트 3.3배**
+> 감소입니다. 타겟 생성에 쓴 500-step $S_4$ 회로($dt = 0.001$)와 비교해
+> "1,867배" 라고 말하면 안 됩니다 — 그것은 하드웨어 회로가 아니라 수치적으로
+> 정확한 기준값이고, BP-PPS 논문도 같은 이유로 2차 Trotter 를 비교군으로 씁니다.
+> 참고로 논문이 보고한 압축률은 40% 이므로, 4.4배는 그보다 좋은 결과입니다.
 
 #### 바닥상태 — 개선 필요
 
@@ -127,11 +150,15 @@ Epoch 200: loss= 0.049  |grad|= 0.09   ← 안정적 수렴
 | Statevector energy | -10.71 |
 | ED ground energy | -22.47 |
 
-> [!WARNING]
-> 바닥상태 결과는 cutoff=1e-3의 truncation으로 인한 systematic bias가 있습니다. BP-PPS 에너지 추정(-20.75)과 실제 statevector 에너지(-10.71)의 큰 차이는 truncation이 에너지 landscape를 왜곡하기 때문입니다. 개선 방향:
-> - cutoff를 1e-4 이하로 낮추고 더 많은 epoch 수행
-> - layer 수 증가 (3 → 5~8)
-> - 시간진화 파라미터를 초기값으로 warm-start
+> [!CAUTION]
+> **이 수치들은 무효입니다.** BP-PPS 에너지(−20.75)와 statevector 에너지(−10.71)의
+> 차이는 truncation 이 아니라 게이트 순서 버그 때문입니다. 실제로 −20.75 는
+> `U(θ)†|0⟩` 의 에너지(−20.7527)와 일치하고, 같은 cutoff 에서 순수 절단 오차는
+> 0.0015 수준에 불과합니다.
+>
+> 수정된 코드에서는 검증 단계가 `|BP-PPS − statevector|` 를 추적된 절단 오차
+> 추정값과 직접 비교하므로 같은 상황이 다시 발생하면 즉시 드러납니다.
+> 바닥상태는 Trotter warm start + Adam → L-BFGS-B 로 재실행이 필요합니다.
 
 ---
 
@@ -154,5 +181,5 @@ Epoch 200: loss= 0.049  |grad|= 0.09   ← 안정적 수렴
 
 1. **시간진화 압축 성공**: 3-layer HVA (depth 15)로 $S_4$ Trotter (depth ~28K)를 fidelity 99.75%로 압축
 2. **국소 관측량 정확도**: $\langle X_i \rangle$, $\langle Z_i \rangle$ 평균 오차 ~0.01 수준
-3. **Trotter 비교**: dt=0.1 (depth 70)에 비해 HVA (depth 15)가 ~4.7배 더 얕은 회로
-4. **바닥상태**: cutoff 제약으로 완전 수렴하지 못함 — 추가 최적화 필요
+3. **Trotter 비교**: dt=0.1 (depth 71, 2Q 240) 대비 HVA (depth 16, 2Q 72) — 깊이 4.4배, 2큐빗 게이트 3.3배 압축
+4. **바닥상태**: 무효 (게이트 순서 버그). 재실행 필요

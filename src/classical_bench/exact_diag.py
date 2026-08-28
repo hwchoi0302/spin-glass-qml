@@ -1,11 +1,22 @@
 import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
-from typing import Tuple, List, Dict, Union
+from typing import Tuple, List, Dict, Optional, Union
 import warnings
 
-# ED는 상태벡터 2^N을 다루므로 큐비트 수 제한 필요
-MAX_QUBITS_ED = 22  # 2^22 = 4M 상태, ~64MB state vector
+# ED는 상태벡터 2^N을 다루므로 큐비트 수 제한 필요.
+# 26큐비트 = 2^26 = 67M 진폭 = 1.07 GB/복소벡터. 여기까지가 데스크탑 한계이고,
+# 그 위로는 SPD(파울리 전파)만 남습니다.
+MAX_QUBITS_ED = 26
+
+# 이 크기를 넘어가면 H를 희소행렬로 쌓는 것 자체가 불가능하므로
+# SpinGlass2D.build_linear_operator() (matrix-free) 를 써야 합니다.
+MAX_QUBITS_SPARSE = 22
+
+
+def statevector_gb(num_qubits: int, complex_dtype: bool = True) -> float:
+    """Memory of one state vector, in GiB."""
+    return (1 << num_qubits) * (16 if complex_dtype else 8) / 1024 ** 3
 
 class ExactDiag:
     """
@@ -16,14 +27,17 @@ class ExactDiag:
     사용해야 합니다.
     """
     
-    def __init__(self, hamiltonian_sparse: sp.csr_matrix, num_qubits: int):
+    def __init__(self, hamiltonian, num_qubits: int):
         """
         Initialize the ExactDiag module.
-        
+
         Args:
-            hamiltonian_sparse: Sparse matrix representation of the Hamiltonian.
+            hamiltonian: The Hamiltonian, either as a scipy sparse matrix
+                (fine up to ~22 qubits) or as a matrix-free LinearOperator
+                from SpinGlass2D.build_linear_operator() (needed beyond that,
+                since the sparse matrix itself would not fit).
             num_qubits: Number of qubits in the system.
-            
+
         Raises:
             ValueError: If num_qubits exceeds MAX_QUBITS_ED.
         """
@@ -33,35 +47,51 @@ class ExactDiag:
                 f"(요청: {num_qubits}). "
                 f"대규모 시스템에는 SPD (pauli-prop)를 사용하세요."
             )
-        if num_qubits > 18:
+        vec_gb = statevector_gb(num_qubits)
+        if num_qubits > 22:
             warnings.warn(
-                f"num_qubits={num_qubits}: 상태벡터 크기 2^{num_qubits} = "
-                f"{2**num_qubits:,}. 메모리 사용량이 클 수 있습니다.",
+                f"num_qubits={num_qubits}: 상태벡터 하나가 {vec_gb:.2f} GiB 입니다. "
+                f"ground_state()는 ncv개의 Lanczos 벡터를 동시에 들고 있으므로 "
+                f"약 {vec_gb * 20:.0f} GiB (기본 ncv=20)가 필요합니다. "
+                f"ncv를 줄여 호출하세요.",
                 ResourceWarning,
             )
-        self.H = hamiltonian_sparse
+        elif num_qubits > 18:
+            warnings.warn(
+                f"num_qubits={num_qubits}: 상태벡터 크기 2^{num_qubits} = "
+                f"{2**num_qubits:,} ({vec_gb:.2f} GiB). "
+                f"메모리 사용량이 클 수 있습니다.",
+                ResourceWarning,
+            )
+        self.H = hamiltonian
         self.num_qubits = num_qubits
         self.dim = 2 ** num_qubits
 
-    def ground_state(self, k: int = 1) -> Tuple[np.ndarray, np.ndarray]:
+    def ground_state(self, k: int = 1, ncv: Optional[int] = None
+                     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Compute the k lowest energy states and their eigenvalues.
-        
+
         Args:
             k: Number of lowest states to compute.
-            
+            ncv: Number of Lanczos vectors held simultaneously. scipy defaults
+                to max(2k+1, 20); each vector costs one full state vector, so
+                at 25-26 qubits the default alone is 10-20 GiB. Lowering it
+                trades convergence speed for memory.
+
         Returns:
-            Tuple of (energies, states) where energies is an array of k lowest 
+            Tuple of (energies, states) where energies is an array of k lowest
             eigenvalues and states is an array of shape (2^N, k) containing eigenvectors.
         """
         if self.dim <= k + 1:
             # Fallback to dense exact diagonalization for very small systems
             # where sparse iterative solvers might fail due to small dimension
-            eigvals, eigvecs = np.linalg.eigh(self.H.toarray())
+            dense = self.H.toarray() if hasattr(self.H, 'toarray') else \
+                self.H @ np.eye(self.dim)
+            eigvals, eigvecs = np.linalg.eigh(dense)
             return eigvals[:k], eigvecs[:, :k]
-        else:
-            energies, states = spla.eigsh(self.H, k=k, which='SA')
-            return energies, states
+        energies, states = spla.eigsh(self.H, k=k, which='SA', ncv=ncv)
+        return energies, states
 
     def ground_energy(self) -> float:
         """
@@ -84,9 +114,11 @@ class ExactDiag:
         Returns:
             The time-evolved state vector.
         """
-        # A = -i * H * t
+        # A = -i * H * t. Tr[H] = 0 exactly (every Pauli term is traceless),
+        # so pass it explicitly: otherwise scipy estimates the trace, which
+        # costs extra matrix-vector products and warns.
         A = -1j * t * self.H
-        return spla.expm_multiply(A, psi0)
+        return spla.expm_multiply(A, psi0, traceA=0.0)
 
     def bitstring_distribution(self, psi: np.ndarray) -> np.ndarray:
         """
@@ -124,9 +156,12 @@ class ExactDiag:
             # Z_i: +1 if bit is 0, -1 if bit is 1
             signs = 1 - 2 * ((indices & mask) >> i)
             Z_vals[i] = np.sum(probs * signs)
-            
-            # X_i: flip bit i
-            X_vals[i] = np.real(np.sum(np.conj(psi) * psi[indices ^ mask]))
+
+            # X_i: flip bit i. Reshaping to (high, bit_i, low) and reversing
+            # the middle axis is a strided view, so this avoids materialising
+            # a 2^N index array (537 MB at 26 qubits).
+            flipped = psi.reshape(-1, 2, mask)[:, ::-1, :].reshape(-1)
+            X_vals[i] = np.real(np.sum(np.conj(psi) * flipped))
 
         for idx, (i, j) in enumerate(bonds):
             mask_i = 1 << i

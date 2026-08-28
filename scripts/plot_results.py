@@ -24,7 +24,9 @@ import matplotlib.gridspec as gridspec
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(PROJECT_ROOT, 'src'))
 
-RESULTS_DIR = os.path.join(PROJECT_ROOT, 'results', '4x4')
+from config import load_config, output_dir  # noqa: E402
+
+RESULTS_DIR = output_dir(load_config(), create=False)
 PLOT_DIR = os.path.join(RESULTS_DIR, 'plots')
 os.makedirs(PLOT_DIR, exist_ok=True)
 

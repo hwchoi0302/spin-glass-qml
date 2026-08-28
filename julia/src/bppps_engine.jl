@@ -1,56 +1,124 @@
 """
-    bppps_engine.jl — BP-PPS Backward Pass Engine (Eq. 20-21)
+    bppps_engine.jl — Sparse Pauli dynamics + BP-PPS backward pass
 
-Direct implementation of the Backpropagating Pauli Propagation algorithm
-from Rudolph et al. (2025), NOT Zygote automatic differentiation.
+Direct implementation of "Backpropagating Pauli Propagation"
+(arXiv:2607.15184), Eqs. 20-21. This is a port of `src/bppps/propagation.py`
+and must stay numerically identical to it; `scripts/00_validate_small.py`
+tests 10-12 are the reference the Python side is held to.
 
-Key differences from standard AD:
-    - Memory: O(N_P) — only stores current SPO + adjoint
-    - Standard AD: O(D × N_P) — stores ALL intermediate SPOs
-    - BP-PPS reconstructs intermediates on-the-fly via inverse gates
+No external dependencies — in particular this file does not use
+PauliPropagation.jl, so it always runs.
+
+Key properties
+    - Memory: O(N_P) — only the current SPO and its adjoint are stored;
+      intermediates are reconstructed with inverse gates rather than cached.
+    - Standard reverse-mode AD would need O(n_param · N_P).
 
 SPO representation: Dict{String, Float64}
-    Key = N-character Pauli label ("IXYZ..."), 1-based qubit indexing
-    Value = real coefficient a_P
+    Key   = N-character Pauli label ("IXYZ..."), label[k] acts on qubit k
+            (1-based).
+    Value = real coefficient a_P.
 
 Gate tuple: (type::Symbol, params..., param_index::Int)
     :rx  → (:rx, qubit, theta, param_idx)
     :rzz → (:rzz, qi, qj, theta, param_idx)
-    param_idx = -1 for non-trainable gates
+    param_idx = -1 for non-trainable gates.
+
+Gate ordering convention
+    A gate sequence is stored in *circuit order*: sequence[1] is applied first
+    to the state, so the circuit unitary is U = g_T · … · g_1. The observable
+    lives at the circuit output, so Heisenberg propagation conjugates by the
+    last gate first,
+
+        U† O U = g_1† … g_T† O g_T … g_1
+
+    Hence `propagate_forward` walks the sequence in reverse and
+    `propagate_backward` — which undoes those steps — walks it forwards.
+    Consuming the sequence the other way round silently evolves the observable
+    under U† instead of U.
 """
 
 # Type alias
 const SPO = Dict{String, Float64}
 
 # ============================================================================
-# Specialized forward gate applications (Heisenberg picture)
+# Truncation error tracking (BP-PPS Appendix B)
 # ============================================================================
 
-"""Apply RX(θ) on qubit k (1-based) to SPO.
+"""Accumulates the l2 weight discarded by coefficient truncation.
 
-Generator σ = X_k.
-Anti-commuting iff P[k] ∈ {Y, Z}.
-Sign: P[k]=Y → s=+1, P[k]=Z → s=-1.
+The weight dropped at gate s is εₛ = sqrt(Σ_{P∈Dₛ} |a_P|²) (Eq. B3). Residuals
+created at different gates are not aligned after further propagation, so they
+are combined in quadrature (Eq. B16):
+
+    ε_emp = sqrt( Σₛ εₛ² )
+
+which is one running sum of squares over every discarded coefficient. This is
+an empirical estimate, not a rigorous bound, but Fig. 8 of the paper shows it
+upper-bounds the observed error in practice.
 """
-function apply_rx_forward!(result::SPO, coeffs::SPO, k::Int, theta::Float64, delta::Float64)
+mutable struct TruncationStats
+    sum_sq::Float64
+    n_discarded::Int
+    n_gates::Int
+end
+TruncationStats() = TruncationStats(0.0, 0, 0)
+
+@inline function discard!(stats::TruncationStats, coeff::Float64)
+    stats.sum_sq += coeff * coeff
+    stats.n_discarded += 1
+    return nothing
+end
+@inline discard!(::Nothing, ::Float64) = nothing
+
+@inline count_gate!(stats::TruncationStats) = (stats.n_gates += 1; nothing)
+@inline count_gate!(::Nothing) = nothing
+
+error_estimate(stats::TruncationStats) = sqrt(stats.sum_sq)
+
+function merge!(dest::TruncationStats, src::TruncationStats)
+    dest.sum_sq += src.sum_sq
+    dest.n_discarded += src.n_discarded
+    dest.n_gates += src.n_gates
+    return dest
+end
+
+const MaybeStats = Union{TruncationStats, Nothing}
+
+# ============================================================================
+# Forward gate applications (Heisenberg picture)
+# ============================================================================
+
+"""Apply RX(θ) on qubit k (1-based).
+
+Generator σ = X_k; anti-commuting iff P[k] ∈ {Y, Z}.
+Conjugate pair: Y ↔ Z at position k, with σ·P = s·i·R and
+s = +1 for P[k]=Y (X·Y = iZ), s = -1 for P[k]=Z (X·Z = -iY).
+"""
+function apply_rx_forward!(result::SPO, coeffs::SPO, k::Int, theta::Float64,
+                           delta::Float64, stats::MaybeStats=nothing)
     empty!(result)
     processed = Set{String}()
     ct, st = cos(theta), sin(theta)
+    thresh = max(delta, 1e-15)
 
     for (P, a_P) in coeffs
         P in processed && continue
 
         c = P[k]
         if c == 'I' || c == 'X'
-            # Commuting
-            result[P] = a_P
+            # Commuting: unchanged, but still subject to the threshold.
+            if abs(a_P) > thresh
+                result[P] = a_P
+            else
+                discard!(stats, a_P)
+            end
         else
-            # Anti-commuting: Y ↔ Z swap at position k
             R_chars = collect(P)
             if c == 'Y'
                 R_chars[k] = 'Z'
                 s = 1.0
-            else  # Z
+            else  # 'Z'
                 R_chars[k] = 'Y'
                 s = -1.0
             end
@@ -60,27 +128,29 @@ function apply_rx_forward!(result::SPO, coeffs::SPO, k::Int, theta::Float64, del
             new_a_P = ct * a_P + s * st * a_R
             new_a_R = -s * st * a_P + ct * a_R
 
-            thresh = max(delta, 1e-15)
-            abs(new_a_P) > thresh && (result[P] = new_a_P)
-            abs(new_a_R) > thresh && (result[R] = new_a_R)
+            abs(new_a_P) > thresh ? (result[P] = new_a_P) : discard!(stats, new_a_P)
+            abs(new_a_R) > thresh ? (result[R] = new_a_R) : discard!(stats, new_a_R)
 
             push!(processed, P)
             push!(processed, R)
         end
     end
+    count_gate!(stats)
     return result
 end
 
-"""Apply RZZ(θ) on qubits (qi, qj) (1-based) to SPO.
+"""Apply RZZ(θ) on qubits (qi, qj) (1-based).
 
-Generator σ = Z_qi ⊗ Z_qj.
-Anti-commuting iff exactly one of P[qi], P[qj] ∈ {X, Y}.
+Generator σ = Z_qi ⊗ Z_qj; anti-commuting iff exactly one of P[qi], P[qj] is
+in {X, Y}. At the anti-commuting site X ↔ Y, at the other site I ↔ Z.
 """
 function apply_rzz_forward!(result::SPO, coeffs::SPO, qi::Int, qj::Int,
-                             theta::Float64, delta::Float64)
+                            theta::Float64, delta::Float64,
+                            stats::MaybeStats=nothing)
     empty!(result)
     processed = Set{String}()
     ct, st = cos(theta), sin(theta)
+    thresh = max(delta, 1e-15)
 
     for (P, a_P) in coeffs
         P in processed && continue
@@ -90,21 +160,20 @@ function apply_rzz_forward!(result::SPO, coeffs::SPO, qi::Int, qj::Int,
         anti_j = cj == 'X' || cj == 'Y'
 
         if anti_i == anti_j
-            # Both commute or both anti-commute → overall commutes
-            result[P] = a_P
+            if abs(a_P) > thresh
+                result[P] = a_P
+            else
+                discard!(stats, a_P)
+            end
         else
             R_chars = collect(P)
             if anti_i
-                # Position qi: X↔Y swap
                 R_chars[qi] = ci == 'X' ? 'Y' : 'X'
                 s = ci == 'X' ? 1.0 : -1.0
-                # Position qj: I↔Z swap
                 R_chars[qj] = cj == 'I' ? 'Z' : 'I'
             else
-                # Position qj: X↔Y swap
                 R_chars[qj] = cj == 'X' ? 'Y' : 'X'
                 s = cj == 'X' ? 1.0 : -1.0
-                # Position qi: I↔Z swap
                 R_chars[qi] = ci == 'I' ? 'Z' : 'I'
             end
             R = String(R_chars)
@@ -113,60 +182,53 @@ function apply_rzz_forward!(result::SPO, coeffs::SPO, qi::Int, qj::Int,
             new_a_P = ct * a_P + s * st * a_R
             new_a_R = -s * st * a_P + ct * a_R
 
-            thresh = max(delta, 1e-15)
-            abs(new_a_P) > thresh && (result[P] = new_a_P)
-            abs(new_a_R) > thresh && (result[R] = new_a_R)
+            abs(new_a_P) > thresh ? (result[P] = new_a_P) : discard!(stats, new_a_P)
+            abs(new_a_R) > thresh ? (result[R] = new_a_R) : discard!(stats, new_a_R)
 
             push!(processed, P)
             push!(processed, R)
         end
     end
+    count_gate!(stats)
     return result
 end
 
 # Convenience wrappers (allocating versions)
-function apply_rx_forward(coeffs::SPO, k::Int, theta::Float64, delta::Float64=0.0)
-    result = SPO()
-    apply_rx_forward!(result, coeffs, k, theta, delta)
-    return result
+function apply_rx_forward(coeffs::SPO, k::Int, theta::Float64,
+                          delta::Float64=0.0, stats::MaybeStats=nothing)
+    apply_rx_forward!(SPO(), coeffs, k, theta, delta, stats)
 end
 
-function apply_rzz_forward(coeffs::SPO, qi::Int, qj::Int, theta::Float64, delta::Float64=0.0)
-    result = SPO()
-    apply_rzz_forward!(result, coeffs, qi, qj, theta, delta)
-    return result
+function apply_rzz_forward(coeffs::SPO, qi::Int, qj::Int, theta::Float64,
+                           delta::Float64=0.0, stats::MaybeStats=nothing)
+    apply_rzz_forward!(SPO(), coeffs, qi, qj, theta, delta, stats)
 end
 
 # ============================================================================
-# Gate sequence builders (for training — returns tuples with param indices)
+# Gate sequence builders
 # ============================================================================
 
-"""Build HVA gate sequence as Vector of (type, ..., param_index) tuples.
-
-Matches the Python propagation.py `build_hva_gate_sequence` exactly.
+"""HVA gate sequence in circuit order: RX on every qubit, then RZZ in
+4 conflict-free substeps. Matches `bppps.propagation.build_hva_gate_sequence`.
 """
 function build_hva_gate_tuples(n_qubits::Int, bonds, substeps, n_layers::Int,
-                                params::Vector{Float64})
-    sequence = []
+                               params::Vector{Float64})
+    sequence = Tuple[]
     n_bonds = length(bonds)
     params_per_layer = n_qubits + n_bonds
 
     for layer in 1:n_layers
         offset = (layer - 1) * params_per_layer
 
-        # RX on all qubits
         for q in 1:n_qubits
             pidx = offset + q
             push!(sequence, (:rx, q, params[pidx], pidx))
         end
 
-        # RZZ in 4 square lattice substeps
-        for step in 1:4
-            for bond_idx in substeps[step]
-                i, j = bonds[bond_idx]
-                pidx = offset + n_qubits + bond_idx
-                push!(sequence, (:rzz, i, j, params[pidx], pidx))
-            end
+        for step in 1:4, bond_idx in substeps[step]
+            i, j = bonds[bond_idx]
+            pidx = offset + n_qubits + bond_idx
+            push!(sequence, (:rzz, i, j, params[pidx], pidx))
         end
     end
     return sequence
@@ -176,19 +238,23 @@ end
 # Forward propagation
 # ============================================================================
 
-"""Propagate SPO through gate sequence (forward pass)."""
-function propagate_forward(init_spo::SPO, gate_sequence; delta::Float64=0.0)
-    spo = copy(init_spo)
-    buf = SPO()  # reusable buffer
+"""Propagate an SPO through a circuit-order gate sequence.
 
-    for gate in gate_sequence
+Computes U† O U; the gates are conjugated last-to-first.
+"""
+function propagate_forward(init_spo::SPO, gate_sequence;
+                           delta::Float64=0.0, stats::MaybeStats=nothing)
+    spo = copy(init_spo)
+    buf = SPO()
+
+    for gate in Iterators.reverse(gate_sequence)
         if gate[1] == :rx
             _, q, theta, _ = gate
-            apply_rx_forward!(buf, spo, q, theta, delta)
-            spo, buf = buf, spo  # swap
+            apply_rx_forward!(buf, spo, q, theta, delta, stats)
+            spo, buf = buf, spo
         elseif gate[1] == :rzz
             _, qi, qj, theta, _ = gate
-            apply_rzz_forward!(buf, spo, qi, qj, theta, delta)
+            apply_rzz_forward!(buf, spo, qi, qj, theta, delta, stats)
             spo, buf = buf, spo
         end
     end
@@ -196,81 +262,57 @@ function propagate_forward(init_spo::SPO, gate_sequence; delta::Float64=0.0)
 end
 
 # ============================================================================
-# Backward propagation (Eq. 20-21 from BP-PPS paper)
+# Backward propagation (Eqs. 20-21), gradient fused with the inverse update
 # ============================================================================
+#
+# BP-PPS Sec. II B 2 stores the derivative jointly with the SPO and applies
+# one truncation rule to the whole tuple:
+#
+#   "If the magnitude is smaller than the threshold |ã_Pi| < δ, we discard the
+#    tuple (P̃i, ã_P̃i, ∂L/∂ã_Pi) including both the coefficient and the
+#    derivative."
+#
+# So the adjoint is never truncated on its own (arbitrary) scale, and backward
+# propagation is automatically restricted to Pauli strings carrying
+# coefficient support — which is what keeps the backward pass the same cost as
+# the forward pass.
 
-"""BP-PPS backward pass: compute gradients for all trainable parameters.
+"""Backward step for an RX gate: Eq. 21 gradient, then the Eq. 11/20 inverse
+rotation of coefficients and adjoints, then the joint truncation.
 
-Algorithm (for each gate t, processed in reverse order):
-1. Gradient (Eq. 21):
-   ∂L/∂θ_t = Σ_{anti-commuting (P,R)} s · (λ_P · ã_R − λ_R · ã_P)
-   
-2. Inverse rotation (Eq. 20): apply gate with −θ to BOTH
-   - coefficients ã (reconstruct previous step)
-   - adjoint λ (propagate gradient seed backward)
-
-Memory: O(N_P) — only current coefficients + adjoint are stored.
+The gradient must be taken *before* the inverse rotation, since Eq. 21 uses
+the post-gate values at step t.
 """
-function propagate_backward(final_spo::SPO, seed::SPO, gate_sequence,
-                             n_params::Int; delta::Float64=0.0)
-    gradients = zeros(n_params)
-
-    coeffs = copy(final_spo)
-    adjoint = copy(seed)
-    buf_c = SPO()
-    buf_a = SPO()
-
-    for gate in Iterators.reverse(gate_sequence)
-        if gate[1] == :rx
-            _, q, theta, pidx = gate
-
-            # --- Eq. 21: gradient contribution ---
-            if pidx > 0
-                grad = _rx_gradient(coeffs, adjoint, q)
-                gradients[pidx] += grad
-            end
-
-            # --- Eq. 20: inverse gate (θ → -θ) ---
-            apply_rx_forward!(buf_c, coeffs, q, -theta, delta)
-            coeffs, buf_c = buf_c, coeffs
-            apply_rx_forward!(buf_a, adjoint, q, -theta, delta)
-            adjoint, buf_a = buf_a, adjoint
-
-        elseif gate[1] == :rzz
-            _, qi, qj, theta, pidx = gate
-
-            if pidx > 0
-                grad = _rzz_gradient(coeffs, adjoint, qi, qj)
-                gradients[pidx] += grad
-            end
-
-            apply_rzz_forward!(buf_c, coeffs, qi, qj, -theta, delta)
-            coeffs, buf_c = buf_c, coeffs
-            apply_rzz_forward!(buf_a, adjoint, qi, qj, -theta, delta)
-            adjoint, buf_a = buf_a, adjoint
-        end
-    end
-
-    return gradients
-end
-
-"""Compute gradient contribution for RX gate at qubit k (Eq. 21)."""
-function _rx_gradient(coeffs::SPO, adjoint::SPO, k::Int)
+function _backward_rx(coeffs::SPO, adjoint::SPO, k::Int, theta::Float64,
+                      delta::Float64, stats::MaybeStats=nothing)
     grad = 0.0
+    new_coeffs = SPO()
+    new_adjoint = SPO()
     processed = Set{String}()
+    ct, st = cos(theta), sin(theta)
+    thresh = max(delta, 1e-15)
 
-    all_keys = union(keys(coeffs), keys(adjoint))
-
-    for P in all_keys
+    for P in union(keys(coeffs), keys(adjoint))
         P in processed && continue
+
         c = P[k]
-        (c == 'I' || c == 'X') && continue  # commuting
+        if c == 'I' || c == 'X'
+            a_P = get(coeffs, P, 0.0)
+            if abs(a_P) > thresh
+                new_coeffs[P] = a_P
+                λ_P = get(adjoint, P, 0.0)
+                λ_P != 0.0 && (new_adjoint[P] = λ_P)
+            else
+                discard!(stats, a_P)
+            end
+            continue
+        end
 
         R_chars = collect(P)
         if c == 'Y'
             R_chars[k] = 'Z'
             s = 1.0
-        else  # Z
+        else
             R_chars[k] = 'Y'
             s = -1.0
         end
@@ -283,26 +325,60 @@ function _rx_gradient(coeffs::SPO, adjoint::SPO, k::Int)
 
         grad += s * (λ_P * a_R - λ_R * a_P)
 
+        new_a_P = ct * a_P - s * st * a_R
+        new_a_R = s * st * a_P + ct * a_R
+        new_λ_P = ct * λ_P - s * st * λ_R
+        new_λ_R = s * st * λ_P + ct * λ_R
+
+        if abs(new_a_P) > thresh
+            new_coeffs[P] = new_a_P
+            new_λ_P != 0.0 && (new_adjoint[P] = new_λ_P)
+        else
+            discard!(stats, new_a_P)
+        end
+        if abs(new_a_R) > thresh
+            new_coeffs[R] = new_a_R
+            new_λ_R != 0.0 && (new_adjoint[R] = new_λ_R)
+        else
+            discard!(stats, new_a_R)
+        end
+
         push!(processed, P)
         push!(processed, R)
     end
-    return grad
+    count_gate!(stats)
+    return new_coeffs, new_adjoint, grad
 end
 
-"""Compute gradient contribution for RZZ gate at (qi, qj) (Eq. 21)."""
-function _rzz_gradient(coeffs::SPO, adjoint::SPO, qi::Int, qj::Int)
+"""Backward step for an RZZ gate. See `_backward_rx`."""
+function _backward_rzz(coeffs::SPO, adjoint::SPO, qi::Int, qj::Int,
+                       theta::Float64, delta::Float64,
+                       stats::MaybeStats=nothing)
     grad = 0.0
+    new_coeffs = SPO()
+    new_adjoint = SPO()
     processed = Set{String}()
+    ct, st = cos(theta), sin(theta)
+    thresh = max(delta, 1e-15)
 
-    all_keys = union(keys(coeffs), keys(adjoint))
-
-    for P in all_keys
+    for P in union(keys(coeffs), keys(adjoint))
         P in processed && continue
 
         ci, cj = P[qi], P[qj]
         anti_i = ci == 'X' || ci == 'Y'
         anti_j = cj == 'X' || cj == 'Y'
-        anti_i == anti_j && continue  # commuting
+
+        if anti_i == anti_j
+            a_P = get(coeffs, P, 0.0)
+            if abs(a_P) > thresh
+                new_coeffs[P] = a_P
+                λ_P = get(adjoint, P, 0.0)
+                λ_P != 0.0 && (new_adjoint[P] = λ_P)
+            else
+                discard!(stats, a_P)
+            end
+            continue
+        end
 
         R_chars = collect(P)
         if anti_i
@@ -323,22 +399,73 @@ function _rzz_gradient(coeffs::SPO, adjoint::SPO, qi::Int, qj::Int)
 
         grad += s * (λ_P * a_R - λ_R * a_P)
 
+        new_a_P = ct * a_P - s * st * a_R
+        new_a_R = s * st * a_P + ct * a_R
+        new_λ_P = ct * λ_P - s * st * λ_R
+        new_λ_R = s * st * λ_P + ct * λ_R
+
+        if abs(new_a_P) > thresh
+            new_coeffs[P] = new_a_P
+            new_λ_P != 0.0 && (new_adjoint[P] = new_λ_P)
+        else
+            discard!(stats, new_a_P)
+        end
+        if abs(new_a_R) > thresh
+            new_coeffs[R] = new_a_R
+            new_λ_R != 0.0 && (new_adjoint[R] = new_λ_R)
+        else
+            discard!(stats, new_a_R)
+        end
+
         push!(processed, P)
         push!(processed, R)
     end
-    return grad
+    count_gate!(stats)
+    return new_coeffs, new_adjoint, grad
+end
+
+"""BP-PPS backward pass: gradients for every trainable parameter.
+
+Undoes the forward sweep, so it visits the gates in the opposite order:
+forward went last-to-first, backward goes first-to-last.
+Memory: O(N_P) — only the current coefficients and adjoints are held.
+"""
+function propagate_backward(final_spo::SPO, seed::SPO, gate_sequence,
+                            n_params::Int; delta::Float64=0.0,
+                            stats::MaybeStats=nothing)
+    gradients = zeros(n_params)
+    coeffs = copy(final_spo)
+    adjoint = copy(seed)
+
+    for gate in gate_sequence
+        if gate[1] == :rx
+            _, q, theta, pidx = gate
+            coeffs, adjoint, grad = _backward_rx(coeffs, adjoint, q, theta,
+                                                 delta, stats)
+            pidx > 0 && (gradients[pidx] += grad)
+        elseif gate[1] == :rzz
+            _, qi, qj, theta, pidx = gate
+            coeffs, adjoint, grad = _backward_rzz(coeffs, adjoint, qi, qj,
+                                                  theta, delta, stats)
+            pidx > 0 && (gradients[pidx] += grad)
+        end
+    end
+    return gradients
 end
 
 # ============================================================================
 # Utility
 # ============================================================================
 
-"""Check if a Pauli label contains only I and Z."""
+"""True if a Pauli label contains only I and Z (contributes to ⟨0|·|0⟩)."""
 is_iz_only(label::String) = all(c -> c == 'I' || c == 'Z', label)
 
-"""Create observable label: e.g., make_obs_label(4, 'X', 2) → "IXII" """
+"""Observable label, e.g. `make_obs_label(4, 'X', 2)` → "IXII"."""
 function make_obs_label(n_qubits::Int, pauli::Char, qubit::Int)
     chars = fill('I', n_qubits)
     chars[qubit] = pauli
     return String(chars)
 end
+
+"""Squared rescaled Hilbert-Schmidt norm, ‖O‖² = Σ_P |a_P|²."""
+operator_norm_sq(spo::SPO) = sum(a * a for a in values(spo); init=0.0)

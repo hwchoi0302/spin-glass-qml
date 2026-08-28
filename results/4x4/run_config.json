@@ -1,0 +1,75 @@
+{
+  "model": {
+    "name": "2D_Transverse_Field_Ising_Spin_Glass",
+    "Lx": 4,
+    "Ly": 4,
+    "transverse_field_h": 1.0,
+    "coupling_distribution": "ea_bimodal",
+    "j_magnitude": 1.0,
+    "seed": 42,
+    "periodic_boundary": false
+  },
+  "ansatz": {
+    "type": "HamiltonianVariationalAnsatz",
+    "topology": "2D_Square_Lattice",
+    "n_layers": 3,
+    "single_qubit_rotation": "RX",
+    "entanglement_gate": "RZZ",
+    "substeps": 4,
+    "max_depth": 50
+  },
+  "target": {
+    "delta_t": 0.5,
+    "dt": 0.001,
+    "trotter_order": 4,
+    "cutoff": 1e-08,
+    "observables": "XZ"
+  },
+  "hardware_trotter": {
+    "order": 2,
+    "dt_values": [
+      0.1,
+      0.2
+    ],
+    "time_points": [
+      0.1,
+      0.2,
+      0.3,
+      0.5,
+      1.0
+    ]
+  },
+  "optimizer": {
+    "stage1": {
+      "name": "Adam",
+      "learning_rate": 0.01,
+      "epochs": 200,
+      "beta1": 0.9,
+      "beta2": 0.999,
+      "eps": 1e-08
+    },
+    "stage2": {
+      "enabled": true,
+      "name": "L-BFGS-B",
+      "max_iter": 200,
+      "tolerance_grad": 1e-06
+    },
+    "ground_state": {
+      "learning_rate": 0.05,
+      "epochs": 100
+    },
+    "init": {
+      "trotter_warm_start": true,
+      "random_scale": 0.1,
+      "seed": 42
+    }
+  },
+  "truncation": {
+    "initial_delta": 0.001,
+    "min_delta": 1e-05,
+    "adaptive": true,
+    "factor": 0.1,
+    "error_ratio": 0.1,
+    "patience": 10
+  }
+}

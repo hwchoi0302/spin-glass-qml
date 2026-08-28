@@ -3,6 +3,8 @@ from typing import List, Tuple, Optional, Union
 from qiskit import QuantumCircuit
 from qiskit.circuit import ParameterVector
 
+from hamiltonians.spin_glass_2d import classify_substep_bonds
+
 class HVA:
     """Hamiltonian Variational Ansatz (HVA) for 2D spin glass models.
     
@@ -38,34 +40,13 @@ class HVA:
         self._classify_bonds()
 
     def _classify_bonds(self) -> None:
-        """Classify bonds into 4 parallel substeps (square lattice coloring).
+        """Colour the bonds into 4 conflict-free substeps.
 
-        For a 2D square lattice, 2-qubit gates are partitioned into 4 groups
-        such that no two gates in the same group share a qubit:
-            1: Even horizontal (x even)
-            2: Odd horizontal  (x odd)
-            3: Even vertical   (y even)
-            4: Odd vertical    (y odd)
+        Delegates to hamiltonians.classify_substep_bonds so that the circuit
+        builder, the Pauli-propagation engine and the Julia pipeline all use
+        one definition of the square-lattice colouring.
         """
-        self.substep_bonds = {1: [], 2: [], 3: [], 4: []}
-        
-        for idx, (i, j) in enumerate(self.bonds):
-            xi, yi = i % self.Lx, i // self.Lx
-            xj, yj = j % self.Lx, j // self.Lx
-            
-            if yi == yj:  # Horizontal
-                if min(xi, xj) % 2 == 0:
-                    self.substep_bonds[1].append((idx, i, j))
-                else:
-                    self.substep_bonds[2].append((idx, i, j))
-            elif xi == xj:  # Vertical
-                if min(yi, yj) % 2 == 0:
-                    self.substep_bonds[3].append((idx, i, j))
-                else:
-                    self.substep_bonds[4].append((idx, i, j))
-            else:
-                # Fallback if not nearest neighbor on grid
-                self.substep_bonds[1].append((idx, i, j))
+        self.substep_bonds = classify_substep_bonds(self.bonds, self.Lx)
 
     def count_params(self) -> int:
         """Return total number of parameters."""
