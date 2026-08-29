@@ -748,6 +748,56 @@ def test_18_numba_engine_matches_string_engine():
     print("  ✅ PASSED\n")
 
 
+def test_19_sorted_engine_matches_string_engine():
+    """Sorted-array (numpy/cupy) engine must match the string-dict oracle exactly.
+
+    This is the representation docs/issues/03-engine-performance.md says GPU
+    only becomes meaningful after: an SPO as two sorted parallel arrays
+    (keys, coeffs), gates applied as whole-array numpy ops (union1d,
+    searchsorted, boolean masking) with no per-term Python loop at all --
+    unlike propagation_numba.py, which is still a term-by-term loop, just
+    JIT-compiled. The same code runs on a GPU by swapping xp=numpy for
+    xp=cupy (see propagation_gpu.py), which is the actual apples-to-apples
+    comparison a CPU-vs-GPU question needs.
+    """
+    print("=" * 60)
+    print("TEST 19: sorted-array engine matches the string-dict oracle")
+    print("=" * 60)
+    from bppps.propagation_sorted import self_check as sorted_self_check
+
+    for seed in range(5):
+        sorted_self_check(seed=seed, n=4, n_gates=80)
+    for seed in range(3):
+        sorted_self_check(seed=seed, n=6, n_gates=150)
+    print("  ✅ PASSED\n")
+
+
+def test_20_gpu_engine_matches_string_engine():
+    """The same sorted-array engine on the GPU (cupy) must also match exactly.
+
+    Skips (not fails) if cupy or a CUDA device is unavailable -- this is the
+    actual apples-to-apples check for the CPU-vs-GPU question in
+    docs/issues/03-engine-performance.md: identical code (propagation_sorted
+    with xp=cupy instead of xp=numpy), same random circuits, same oracle.
+    """
+    print("=" * 60)
+    print("TEST 20: GPU (cupy) sorted-array engine matches the string oracle")
+    print("=" * 60)
+    try:
+        import cupy as cp
+        cp.cuda.Device(0).compute_capability
+    except Exception as e:
+        print(f"  SKIPPED: no usable CUDA device/cupy ({e})\n")
+        return
+    from bppps.propagation_sorted import self_check as sorted_self_check
+
+    for seed in range(5):
+        sorted_self_check(seed=seed, n=4, n_gates=80, xp=cp)
+    for seed in range(3):
+        sorted_self_check(seed=seed, n=6, n_gates=150, xp=cp)
+    print("  ✅ PASSED\n")
+
+
 if __name__ == '__main__':
     test_1_ferromagnetic()
     test_2_pauli_op_consistency()
@@ -767,7 +817,9 @@ if __name__ == '__main__':
     test_16_adaptive_truncation_fires()
     test_17_packed_engine_matches_string_engine()
     test_18_numba_engine_matches_string_engine()
+    test_19_sorted_engine_matches_string_engine()
+    test_20_gpu_engine_matches_string_engine()
 
     print("=" * 60)
-    print("ALL 18 TESTS PASSED ✅")
+    print("ALL 20 TESTS PASSED ✅ (TEST 20 skips cleanly without a GPU)")
     print("=" * 60)
