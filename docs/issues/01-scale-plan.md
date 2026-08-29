@@ -207,9 +207,10 @@ BP-PPS = `L_XZ` 경유) 같은 값이 나오지는 않습니다. 하지만 state
 > 상태는 간격 0.032 로 거의 이중 축퇴입니다. 아래 "목표 3 — 왜 fidelity 가
 > 낮은가" 절을 반드시 함께 읽으세요.
 
-> 열린 질문: `gs_multi_layer.json` (1~5층 스윕) 은 아직 수정 전 데이터입니다.
-> `plot_extended.py` 재실행(3~6시간)이 남아 있고, 그게 층 수 대비 에너지
-> 수렴 곡선을 줍니다. 목표 3을 논하려면 이게 먼저입니다.
+> 열린 질문: 층 수 스윕은 아직 수정 전 데이터입니다
+> (`gs_multi_layer.PRE-FIX.json`). `plot_extended.py --part 2` 재실행(3~6시간)이
+> 남아 있습니다. 다만 아래에서 확인했듯 3층 안수 자체는 격차 0.21 까지 갈 수
+> 있으므로, **층 수 스윕보다 δ 를 조이는 것이 먼저입니다.**
 
 ## T1-T 진행 상황 — 메모리 주의
 
@@ -478,7 +479,7 @@ BP-PPS 훈련 파라미터  -> |0>   E_start=-21.173  ->  E = -22.261   dE = 0.2
 
 ### 층 수를 늘리면 되는가
 
-`gs_multi_layer.json` (수정 전 데이터, 그래도 추세는 유효):
+`gs_multi_layer.PRE-FIX.json` (수정 전 데이터, 추세만 참고):
 
 | 층 | BP-PPS 에너지 | E0 대비 격차 | 4×4 2Q 게이트 |
 |:--|:--|:--|:--|
@@ -666,7 +667,7 @@ GPU 를 먼저 보면 안 되는 이유는 커널의 성질입니다. 게이트 
 상한이므로 `dt` 에 붙은 정확도 주장은 그대로 성립합니다. `run_pipeline.py` 가
 따로 갖고 있던 `int(round(t/dt))` 도 빌더를 호출하도록 바꿨습니다.
 
-`00_validate_small.py` → `ALL 14 TESTS PASSED`. `--stages 2` 재실행(7초)으로
+`00_validate_small.py` 통과 (당시 14개, TEST 15 추가 후 15개). `--stages 2` 재실행(7초)으로
 `ed_results.json` 과 `trotter_results.json` 을 다시 만들었습니다. 훈련 결과는
 건드리지 않았습니다 — 이 경로는 statevector 기준선 전용입니다.
 
@@ -676,26 +677,32 @@ GPU 를 먼저 보면 안 되는 이유는 커널의 성질입니다. 게이트 
 
 ## 2026-08-29 에 고친 것 — 그림
 
-- **`02_fidelity_comparison.png`**: HVA 를 `t=0.5` 점 하나가 아니라
-  `U(θ;0.5)^k`, `k=1..5` 곡선으로 그립니다. Trotter 두 곡선도 같은 `t=2.5` 까지
-  확장해 셋을 같은 격자에서 비교합니다. 데이터는
-  `composition_fidelity.json` 이고, `plot_extended.py --part 1` 로 만듭니다
-  (statevector 전용, 25초).
-- **`plot_extended.py --part` 플래그 추가**: part 1(합성 fidelity, 수 초)과
-  part 2(바닥상태 층 수 스윕, BP-PPS 훈련, 수 시간)를 따로 돌릴 수 있습니다.
-  part 1 은 `trained_params.json` 에 의존하므로 **시간 진화 훈련을 다시 할 때마다
-  같이 다시 돌려야 합니다.** 이걸 안 해서 08-26 데이터가 08-29 재실행 뒤에도
-  남아 있었습니다.
-- **`04_training_curves.png`**: Adam 구간과 L-BFGS-B 구간을 색과 배경으로 분리하고
-  경계에 세로선을 넣었습니다. L-BFGS-B 의 line search 시험점은 연결선에서 빼고
-  빈 원으로 따로 표시합니다 (판정: 그 구간 자체 폭의 5% 이상 상승). Adam 구간의
-  작은 언덕은 실제 궤적이므로 그대로 둡니다.
-- **삭제**: `10_gs_energy_vs_layers.png`, `11_combined_extended.png`. 게이트 순서
-  수정 **이전**(08-26) 데이터로 그린 그림입니다. 원본 데이터도
-  `gs_multi_layer.PRE-FIX.json` 으로 이름을 바꿔 두었습니다 — 추세를 볼 때만
-  쓰고 수치는 인용하지 마세요. `plot_extended.py --part 2` 가 다시 만듭니다.
-- `01_lattice_J_h.png` 은 08-26 것이었지만 `J` 는 seed 에서 결정론적으로 나오므로
-  내용이 같습니다. 그래도 함께 재생성했습니다.
+그림 자체의 해설은 [results_4x4.md](../results_4x4.md) 로 옮겼습니다. 여기에는
+결정만 남깁니다.
+
+- `02_fidelity_comparison.png` — HVA 를 `t=0.5` 점 하나가 아니라 `U(θ;0.5)^k`
+  곡선으로. Trotter 두 곡선도 같은 격자로 확장
+- `04_training_curves.png` — Adam / L-BFGS-B 구간 분리, line search 시험점은
+  연결선에서 제외하고 빈 원으로 표시
+- `10_gs_energy_vs_layers.png`, `11_combined_extended.png` **삭제** — 수정 전
+  (08-26) 데이터. 원본은 `gs_multi_layer.PRE-FIX.json`
+- `plot_extended.py --part` 플래그 추가. **part 1 은 `trained_params.json` 에
+  의존하므로 시간 진화 훈련을 다시 할 때마다 같이 돌려야 합니다.** 이걸 안 해서
+  08-26 데이터가 08-29 재실행 뒤에도 남아 있었습니다
+- `run_pipeline.py --train {te,gs}` 추가 — 바닥상태 설정만 바꿀 때 78분짜리 시간
+  진화 훈련을 건너뛰기 위해서
+
+## 2026-08-29 에 정리한 문서
+
+겹치는 문서를 합쳤습니다. 같은 내용이 두 벌 있으면 한쪽만 고쳐지고 다른 쪽이
+낡는 일이 실제로 반복됐습니다.
+
+- `visualization_results.md` + `extended_visualization.md` + `walkthrough_4x4.md`
+  → **`results_4x4.md`** 하나로. 셋 다 수정 전 수치와 "이 그림은 무효" 경고로
+  덮여 있어 유효한 것을 가려내야 했습니다. 무효 데이터는 지웠습니다
+- `manual.md` 의 "4×4 재실행 계획" 절 삭제 → `RUNBOOK.md` §2 와 중복이었습니다.
+  `manual.md` 는 코드·설정 레퍼런스로 역할을 좁혔습니다
+- **`RUNBOOK.md` §1.5 신설** — 이번 세션 변경을 데스크탑에 반영하는 절차
 
 ## 다음 행동
 

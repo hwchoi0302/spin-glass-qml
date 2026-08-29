@@ -150,6 +150,39 @@ python scripts/run_pipeline.py --stages 1
 
 ## 3. BP-PPS 훈련
 
+### 어느 절반을 훈련할지 — `--train`
+
+stage 3 은 서로 독립인 두 훈련으로 되어 있습니다. 시간 진화 압축은 타겟 SPO 를
+쓰고, 바닥상태 준비는 해밀토니안만 씁니다.
+
+```bash
+python scripts/run_pipeline.py --stages 3 --train gs   # 바닥상태만 (타겟 캐시 불필요)
+python scripts/run_pipeline.py --stages 3 --train te   # 시간 진화만
+python scripts/run_pipeline.py --stages 3              # 둘 다 (기본값)
+```
+
+바닥상태 설정만 바꿨을 때 `--train gs` 를 쓰면 ~78분짜리 시간 진화 훈련을
+건너뜁니다. 그리고 시간 진화를 다시 훈련하면 `trained_params.json` 이 바뀌므로
+**`plot_extended.py --part 1` 을 반드시 같이 돌려야** `composition_fidelity.json`
+과 그림 02·09 가 낡지 않습니다.
+
+### 바닥상태 초기상태 — `optimizer.ground_state.initial_state`
+
+`plus` (기본값, `|+...+>`) 또는 `zero` (`|0...0>`).
+
+`ΠX = Π_i X_i` 는 `H` 와도 HVA 의 RX·RZZ 게이트 전부와도 교환하므로, 회로는 두
+패리티 섹터 사이로 무게를 옮길 수 없습니다. 바닥상태는 **항상** `+1` 섹터에
+있습니다 — `H` 가 stoquastic 이라 Perron–Frobenius 에 의해 진폭이 전부 양수이고,
+`ΠX` 는 그 진폭들의 치환이라 `-ψ₀` 를 낼 수 없기 때문입니다. 계 크기와 무관하게
+성립합니다.
+
+`|+...+>` 는 그 `+1` 섹터의 고유상태이지만 `|0...0>` 은 패리티 고유상태가
+아니어서 (`ΠX|0...0> = |1...1>`) 두 섹터에 정확히 반씩 갈립니다. 그래서
+**`|0...0>` 에서는 바닥상태 fidelity 가 어떤 θ 로도 0.5 를 못 넘습니다.**
+구현상 바뀌는 것은 에너지를 읽을 때 쓰는 필터 하나입니다 — `<s|P|s> = 1` 인
+파울리 문자열이 `|0...0>` 이면 I/Z, `|+...+>` 이면 I/X 입니다
+(`bppps/pauli_utils.py`의 `product_state_filter`).
+
 ```bash
 python scripts/run_pipeline.py --stages 3
 ```
@@ -304,145 +337,27 @@ TEST 12: delta=1e-02: |dE|=1.20e-02, eps_emp=3.22e-01
 
 ---
 
-## 4×4 재실행 계획 (2026-08-28 수정 반영)
+## 재실행 절차는 여기 없습니다
 
-게이트 순서 버그 수정 이후 4×4 결과를 다시 만드는 절차입니다.
-기존 `results/4x4/targets_dt0.5.json` (약 100 MB) 은 **재사용 가능**합니다.
+단계별 실행 절차, 소요 시간, 중단 기준, 지금 데스크탑에서 돌려야 하는 명령은
+전부 **[RUNBOOK.md](RUNBOOK.md)** 에 있습니다. 예전에는 이 문서에도 "4×4 재실행
+계획" 이 통째로 있었는데, RUNBOOK §2 와 같은 내용이 두 벌 있으니 한쪽만 고쳐지고
+다른 쪽이 낡는 일이 반복돼 지웠습니다.
 
-### 왜 타겟을 다시 안 만들어도 되나
+- 지금 반영해야 할 변경과 명령: [RUNBOOK.md](RUNBOOK.md) §1.5
+- T1 전체 절차: [RUNBOOK.md](RUNBOOK.md) §2
+- T1-T 시간 스윕: [RUNBOOK.md](RUNBOOK.md) §3
+- 결과와 그림 해설: [results_4x4.md](results_4x4.md)
 
-타겟 Trotter 시퀀스가 **역순 불변**이기 때문입니다. `S2` 스텝은
-`[RX(전체), RZZ(전체), RX(전체)]` 로 palindromic 이고, 한 블록 안의 RX 끼리·RZZ
-끼리는 서로 교환하며, `S4 = S2(p)S2(p)S2(q)S2(p)S2(p)` 도 palindromic 입니다.
-따라서 시퀀스를 뒤집어도 같은 유니터리이고, 순서 버그는 타겟에 영향을 주지
-않았습니다. 반면 HVA 는 `RX → RZZ` 로 palindromic 이 아니라 영향을 받았습니다.
+이 문서는 **코드와 설정의 레퍼런스**입니다 — 무엇이 어떤 파일에 있고 각
+설정 키가 무엇을 하는지.
 
-이 성질은 `TEST 14` 가 구조적으로 검증합니다 (`S1` 은 palindromic 이 아니므로
-불변이 아니어야 하고, 실제로 그렇게 나오는지까지 확인합니다).
+### 캐시 파일 관리
 
-```
-TEST 14: S2: max |forward - reversed| = 1.11e-16 (48 gates)
-         S4: max |forward - reversed| = 3.89e-16 (240 gates)
-         S1: max |forward - reversed| = 2.79e-01 (expected non-zero)
-```
-
-### 단계별 절차
-
-#### 0단계 — 코드 건전성 (수 분)
-
-```bash
-python scripts/00_validate_small.py       # 14개 전부 통과해야 함
-```
-
-TEST 10·11·13·14 가 이번 수정의 회귀 가드입니다.
-
-#### 1단계 — 모델 일치 확인 (수 초)
-
-```bash
-python scripts/00_build_model.py
-```
-
-`model_config.json already matches this config` 가 나와야 합니다. 다른 메시지가
-나오면 커플링이 바뀐 것이므로 기존 결과 전체가 무효입니다.
-
-#### 2단계 — 타겟 캐시 검증 (약 10–20분)
-
-구조적 논증에만 기대지 말고 실제 파일을 확인합니다.
-
-```bash
-python scripts/00_verify_targets.py --observables X_0 Z_0
-```
-
-- 32개 관측량 전체의 노름 결손을 보고합니다. 정확한 전파는 `‖O‖_rHS = 1` 을
-  보존하므로, 결손이 곧 절단으로 잃은 양입니다. cutoff = 1e-8 이면 1e-5 이하가
-  정상입니다 (BP-PPS 논문이 보고한 값은 2.3e-5 와 4.8e-5).
-- 코너 관측량 `X_0`, `Z_0` 를 현재 코드로 재생성해 캐시와 대조합니다.
-  코너는 이웃이 적어 SPO 가 가장 작으므로(약 8K 항) 검증이 가장 쌉니다.
-
-`MISMATCH` 가 나오면 캐시를 지우고 1단계부터 다시 생성해야 합니다 (약 7시간).
-
-#### 3단계 — 저비용 확인 실행 (약 15–30분)
-
-**전체 실행 전에 반드시 이걸 먼저 하세요.** 절단을 고정하고 짧게 돌려서
-수정이 실환경에서 동작하는지만 봅니다.
-
-```bash
-python scripts/run_pipeline.py --stages 2 3 4 \
-    --set truncation.adaptive=false \
-    --set truncation.initial_delta=1e-3 \
-    --set optimizer.stage1.epochs=50 \
-    --set optimizer.ground_state.epochs=50 \
-    --set optimizer.stage2.enabled=false
-```
-
-검증 출력에서 확인할 한 줄:
-
-```
-|BP-PPS - statevector| = 0.00xxxx   (should be <= the truncation estimate ...)
-```
-
-수정 전에는 이 값이 **10.04** 였습니다. 이제 추적된 절단 오차 추정값 이내여야
-합니다. 여기서 벌어지면 더 진행하지 말고 원인을 찾아야 합니다.
-
-#### 4단계 — 본 실행 (약 3–5시간)
-
-```bash
-python scripts/run_pipeline.py --stages 2 3 4
-```
-
-기본 설정이 적용됩니다: Trotter warm start → Adam(200 epochs) → L-BFGS-B(200 it),
-절단은 1e-3 에서 시작해 오차 추정값이 커지면 1e-5 까지 자동으로 조여집니다.
-
-| 항목 | 수정 전 | 수정 후 예상 |
-|:---|:---|:---|
-| 타겟 생성 | 6.8시간 | 0 (캐시 재사용) |
-| 시간진화 훈련 | 66분 (200 epochs) | 1–3시간 (Adam + L-BFGS-B, 절단 자동 강화) |
-| 바닥상태 훈련 | 18분 (100 epochs, δ=1e-3) | 1–2시간 (동일 + δ 강화) |
-| 검증 | 수 분 | 수 분 |
-
-에폭당 비용은 두 방향으로 움직입니다. 역전파가 3-pass 에서 1-pass 로 줄고
-seed 가 계수 support 로 제한되어 (4×4 `X_5` 기준 약 300K → 18K 항) 빨라지지만,
-adaptive 절단이 `delta` 를 조이면 SPO 가 커져 느려집니다. 후자가 더 크므로
-전체적으로는 비슷하거나 조금 늘어날 것으로 봅니다.
-
-#### 5단계 — 그림 재생성 (약 3–6시간)
-
-```bash
-python scripts/plot_results.py       # 그림 1–8, 빠름
-python scripts/plot_extended.py      # 그림 9–11, layer 1–5 재훈련 포함
-```
-
-`plot_extended.py` 는 저에너지 상태 준비 그림을 위해 layer 1–5 를 **직접 다시
-훈련합니다.** 이 부분이 오래 걸리므로 시간이 없으면 나중으로 미뤄도 됩니다.
-
-#### 6단계 — 하드웨어 회로 (수 초)
-
-```bash
-python scripts/01_build_hw_circuits.py --repeats 1 2 3 4 5
-python scripts/01_build_hw_circuits.py --repeats 1 2 3 4 5 --basis X
-```
-
-### 갱신해야 할 산출물
-
-| 파일 | 조치 |
-|:---|:---|
-| `targets_dt0.5.json` | 그대로 재사용 |
-| `model_config.json`, `ed_results.json`, `trotter_results.json` | 그대로 (2단계에서 덮어써도 동일) |
-| `trained_params.json` | 재생성 (기존 값도 F=0.9975 로 유효하나 목적함수가 켤레였음) |
-| `gs_trained_params.json`, `gs_multi_layer.json` | **반드시 재생성** |
-| `composition_fidelity.json` | 재생성 |
-| `plots/*.png` | 재생성 |
-| `docs/walkthrough_4x4.md` 등 | 새 수치로 갱신 |
-
-### 캐시 파일 관리 팁
-
-`targets_dt0.5.json` 은 100 MB 에 가까워 GitHub 파일 제한(100 MB)에 걸리고,
-매 실행마다 JSON 파싱에 수십 초가 듭니다. 10×10 에서는 GB 급이 되므로 그때는
-포맷을 바꿔야 합니다. 파울리 문자열을 2비트/큐비트로 패킹해 `npz` 나 `hdf5` 로
-저장하면 크기와 로딩 시간이 모두 한 자릿수 줄어듭니다. 4×4 에서는 굳이 필요
-없지만, 10×10 전에는 해두는 편이 좋습니다.
-
----
+`results/4x4/targets_dt0.5.json` 은 정밀 타겟 캐시입니다. 있으면
+`stage1_targets` 가 재사용하고, **없으면 조용히 재생성이 시작되어 몇 시간이
+걸립니다.** 캐시가 없는 기계(예: 랩탑)에서 `--stages 1`, `--stages 3`(te 포함),
+`--stages 4` 를 돌리지 마세요.
 
 ## 구현 전환점: 7×7 부터 bitpacking
 

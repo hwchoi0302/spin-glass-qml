@@ -3,29 +3,28 @@
 This directory contains the simulation outputs, exact diagonalization benchmarks, variational training data, and figures for the 4×4 (16-qubit) Edwards-Anderson bimodal spin glass model ($H = -\sum_{\langle i,j \rangle} J_{ij} Z_i Z_j - h \sum_i X_i$).
 
 > [!NOTE]
-> **Re-run as of 2026-08-29** with the gate-ordering fix (`e9c3b50`). All files
-> below, including `gs_trained_params.json` and plots 02–08, are now from the
-> post-fix code and the ground-state optimiser targets the deployed
-> `U(theta)|0>` correctly.
+> **State as of 2026-08-29.** Everything here is from the post-fix code
+> (gate ordering, `e9c3b50`; Trotter step rounding, this session).
 >
 > | Check | Result |
 > |:---|:---|
 > | Time evolution ($t=0.5$) fidelity vs ED | 0.99918 |
-> | Ground state `\|BP-PPS - statevector\|` | 0.0343 (within the tracked truncation estimate, 0.121) |
+> | Ground state `\|BP-PPS - statevector\|` | 0.0343 (within the truncation estimate, 0.121) |
+> | `scripts/00_validate_small.py` | ALL 15 TESTS PASSED |
 >
-> `gs_multi_layer.json`, `composition_fidelity.json`, and plots 09–11 (layer
-> sweep / composition, from `plot_extended.py`) are **still from before the
-> fix** — that script was not re-run yet (it takes 3–6h). Treat those three
-> files and plots as stale until it is.
+> Two known gaps, both with fixes already in the code and neither re-run yet:
+> the ground state was trained from `|0...0>`, whose parity caps its fidelity
+> at 0.5 (the config now says `|+...+>`), and it stopped 1.09 above what the
+> same 3-layer ansatz can reach, which points at the truncation delta. See
+> [RUNBOOK §1.5](../../docs/RUNBOOK.md) for the commands and
+> [issues/01-scale-plan.md](../../docs/issues/01-scale-plan.md) for the
+> evidence.
 >
-> `targets_dt0.5.json` (the ED-precision target cache) was **not regenerated**
-> for this run. `scripts/00_verify_targets.py` flags a MISMATCH against it
-> (corner-observable deviation ~4e-6) because the same fix also made the
-> truncation rule apply uniformly to commuting-branch coefficients, which the
-> palindrome argument below does not cover. The deviation is far below what
-> this run's losses/fidelities resolve, so it was kept rather than spending
-> the ~7h regeneration; see the project owner's decision in session history.
-> See `docs/extended_visualization.md` for the original bug diagnosis.
+> `targets_dt0.5.json` was **not regenerated**; `scripts/00_verify_targets.py`
+> reports a ~4e-6 MISMATCH against it because the same fix made truncation
+> apply uniformly to commuting-branch coefficients. The deviation is far below
+> what this run resolves, so it was kept rather than spending the ~7h
+> regeneration (owner's decision, 2026-08-29).
 
 ## Overview of Figures
 
@@ -40,8 +39,6 @@ This directory contains the simulation outputs, exact diagonalization benchmarks
 | ![Heatmap](plots/07_loss_heatmap.png) | **Loss Heatmap**: Per-qubit training error distribution across the lattice. |
 | ![Summary](plots/08_summary.png) | **Summary Panel**: Multi-panel summary in BP-PPS paper style. |
 | ![Composition](plots/09_composition_fidelity.png) | **Composition Fidelity**: Long-time evolution ($t=0.5 \sim 2.5$) via repeated HVA blocks (log scale). |
-| ![GS vs Layers](plots/10_gs_energy_vs_layers.png) | **Low-Energy Preparation vs Layers**: Energy convergence for 1 to 5 HVA layers (BP-PPS Fig. 4a style). |
-| ![Extended Summary](plots/11_combined_extended.png) | **Extended Summary**: Combined view of composition and multi-layer state preparation. |
 
 ## Data Files
 
@@ -49,13 +46,13 @@ This directory contains the simulation outputs, exact diagonalization benchmarks
 - `ed_results.json`: Exact Diagonalization ground state and time evolution benchmarks.
 - `trotter_results.json`: Trotterized quantum circuit simulation benchmarks ($\Delta t=0.1, 0.2$).
 - `trained_params.json`: Optimized HVA parameters and loss history for time evolution ($\Delta t=0.5$).
-- `gs_trained_params.json`: Ground state preparation parameters (3 layers).
-- `gs_multi_layer.json`: Low-energy state preparation data across 1, 2, 3, 4, 5 layers.
+- `gs_trained_params.json`: Ground state preparation parameters (3 layers, still from `|0...0>`).
+- `gs_multi_layer.PRE-FIX.json`: layer sweep (1-5) from **before** the gate-ordering fix. Kept for the trend only - do not quote the numbers. `plot_extended.py --part 2` regenerates it.
 - `composition_fidelity.json`: Fidelity and depth evaluations for composed HVA blocks at $t \in [0.5, 2.5]$.
 - `validation_results.json`: Summary validation metrics comparing HVA against exact diagonalization.
 
 ## Documentation
 
-- [Detailed Simulation Walkthrough](../../docs/walkthrough_4x4.md)
-- [Visualization Analysis Report](../../docs/visualization_results.md)
-- [Extended Visualization & Truncation Bias Report](../../docs/extended_visualization.md)
+- [Results and figures, annotated](../../docs/results_4x4.md)
+- [RUNBOOK — how to run this](../../docs/RUNBOOK.md)
+- [Code and config reference](../../docs/manual.md)

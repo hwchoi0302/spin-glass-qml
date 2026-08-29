@@ -64,7 +64,9 @@ spin-glass-qml/
 └── docs/
     ├── RUNBOOK.md                # ← start here to run the simulations
     ├── benchmark_plan.md         # the three goals and what each one claims
-    └── manual.md                 # pipeline reference
+    ├── results_4x4.md            # the 4x4 numbers and figures, annotated
+    ├── manual.md                 # code and config reference
+    └── issues/                   # one file per work thread; current state
 ```
 
 ---
