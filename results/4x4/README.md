@@ -2,19 +2,30 @@
 
 This directory contains the simulation outputs, exact diagonalization benchmarks, variational training data, and figures for the 4×4 (16-qubit) Edwards-Anderson bimodal spin glass model ($H = -\sum_{\langle i,j \rangle} J_{ij} Z_i Z_j - h \sum_i X_i$).
 
-> [!CAUTION]
-> **Data validity as of 2026-08-28.** These outputs were produced before a gate
-> ordering bug in the Pauli propagation engine was found and fixed.
+> [!NOTE]
+> **Re-run as of 2026-08-29** with the gate-ordering fix (`e9c3b50`). All files
+> below, including `gs_trained_params.json` and plots 02–08, are now from the
+> post-fix code and the ground-state optimiser targets the deployed
+> `U(theta)|0>` correctly.
 >
-> | File | Status |
+> | Check | Result |
 > |:---|:---|
-> | `model_config.json`, `ed_results.json`, `trotter_results.json` | valid |
-> | `targets_dt0.5.json` | valid (the Trotter sequence is palindromic, so the bug left it unchanged) |
-> | `trained_params.json`, `composition_fidelity.json` | valid; retraining is nevertheless recommended |
-> | `gs_trained_params.json`, `gs_multi_layer.json` | **invalid** — the optimiser targeted `U(theta)^dag \|0>` instead of `U(theta)\|0>` |
-> | plots 04(b), 05, 08, 10, 11 | **invalid** — derived from the ground-state data |
+> | Time evolution ($t=0.5$) fidelity vs ED | 0.99918 |
+> | Ground state `\|BP-PPS - statevector\|` | 0.0343 (within the tracked truncation estimate, 0.121) |
 >
-> See `docs/extended_visualization.md` for the full diagnosis.
+> `gs_multi_layer.json`, `composition_fidelity.json`, and plots 09–11 (layer
+> sweep / composition, from `plot_extended.py`) are **still from before the
+> fix** — that script was not re-run yet (it takes 3–6h). Treat those three
+> files and plots as stale until it is.
+>
+> `targets_dt0.5.json` (the ED-precision target cache) was **not regenerated**
+> for this run. `scripts/00_verify_targets.py` flags a MISMATCH against it
+> (corner-observable deviation ~4e-6) because the same fix also made the
+> truncation rule apply uniformly to commuting-branch coefficients, which the
+> palindrome argument below does not cover. The deviation is far below what
+> this run's losses/fidelities resolve, so it was kept rather than spending
+> the ~7h regeneration; see the project owner's decision in session history.
+> See `docs/extended_visualization.md` for the original bug diagnosis.
 
 ## Overview of Figures
 

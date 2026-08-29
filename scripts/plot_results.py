@@ -134,10 +134,12 @@ def plot_fidelity():
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5))
 
     time_pts = [0.1, 0.2, 0.3, 0.5, 1.0]
+    # dt=0.2 has no entry for t=0.1 (rounds to 0 Trotter steps, so it was skipped).
+    time_pts_02 = [t for t in time_pts if str(t) in trotter['0.2']]
 
     # Trotter fidelities
     fid_trotter_01 = [trotter['0.1'][str(t)]['fidelity'] for t in time_pts]
-    fid_trotter_02 = [trotter['0.2'][str(t)]['fidelity'] for t in time_pts]
+    fid_trotter_02 = [trotter['0.2'][str(t)]['fidelity'] for t in time_pts_02]
 
     # HVA fidelity - we only have t=0.5 from validation
     # For the other time points, we need to compute them.
@@ -148,7 +150,7 @@ def plot_fidelity():
     ax1.plot(time_pts, [1.0]*len(time_pts), 'k--', lw=1.5, alpha=0.5, label='ED (exact)')
     ax1.plot(time_pts, fid_trotter_01, 's-', color='#2196F3', markersize=8, lw=2,
             label=r'Trotter $S_2$ ($\Delta t=0.1$)')
-    ax1.plot(time_pts, fid_trotter_02, '^-', color='#FF9800', markersize=8, lw=2,
+    ax1.plot(time_pts_02, fid_trotter_02, '^-', color='#FF9800', markersize=8, lw=2,
             label=r'Trotter $S_2$ ($\Delta t=0.2$)')
     ax1.plot(0.5, hva_fid_05, 'D', color='#E91E63', markersize=12, zorder=5,
             label=f'HVA 3-layer (t=0.5)')
@@ -170,7 +172,7 @@ def plot_fidelity():
 
     ax2.semilogy(time_pts, infid_trotter_01, 's-', color='#2196F3', markersize=8, lw=2,
                 label=r'Trotter $S_2$ ($\Delta t=0.1$)')
-    ax2.semilogy(time_pts, infid_trotter_02, '^-', color='#FF9800', markersize=8, lw=2,
+    ax2.semilogy(time_pts_02, infid_trotter_02, '^-', color='#FF9800', markersize=8, lw=2,
                 label=r'Trotter $S_2$ ($\Delta t=0.2$)')
     ax2.semilogy(0.5, infid_hva, 'D', color='#E91E63', markersize=12, zorder=5,
                 label=f'HVA 3-layer')
@@ -410,10 +412,12 @@ def plot_depth_comparison():
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5))
 
     time_pts = [0.1, 0.2, 0.3, 0.5, 1.0]
+    # dt=0.2 has no entry for t=0.1 (rounds to 0 Trotter steps, so it was skipped).
+    time_pts_02 = [t for t in time_pts if str(t) in trotter['0.2']]
 
     # Depths
     depth_trot01 = [trotter['0.1'][str(t)]['depth'] for t in time_pts]
-    depth_trot02 = [trotter['0.2'][str(t)]['depth'] for t in time_pts]
+    depth_trot02 = [trotter['0.2'][str(t)]['depth'] for t in time_pts_02]
     depth_hva = [15] * len(time_pts)  # HVA depth is constant
 
     # For multiple Δt composition: HVA depth = 15 * (t/0.5)
@@ -421,13 +425,13 @@ def plot_depth_comparison():
 
     # 2Q gates
     n2q_trot01 = [trotter['0.1'][str(t)]['n_2q_gates'] for t in time_pts]
-    n2q_trot02 = [trotter['0.2'][str(t)]['n_2q_gates'] for t in time_pts]
+    n2q_trot02 = [trotter['0.2'][str(t)]['n_2q_gates'] for t in time_pts_02]
     n2q_hva = [72 * max(1, int(round(t / 0.5))) for t in time_pts]
 
     # --- Panel (a): Circuit depth ---
     ax1.plot(time_pts, depth_trot01, 's-', color='#2196F3', markersize=8, lw=2,
             label=r'Trotter $S_2$ ($\Delta t=0.1$)')
-    ax1.plot(time_pts, depth_trot02, '^-', color='#FF9800', markersize=8, lw=2,
+    ax1.plot(time_pts_02, depth_trot02, '^-', color='#FF9800', markersize=8, lw=2,
             label=r'Trotter $S_2$ ($\Delta t=0.2$)')
     ax1.plot(time_pts, depth_hva_comp, 'D-', color='#E91E63', markersize=8, lw=2,
             label='HVA 3-layer (composed)')
@@ -448,7 +452,7 @@ def plot_depth_comparison():
     # --- Panel (b): 2-qubit gates ---
     ax2.plot(time_pts, n2q_trot01, 's-', color='#2196F3', markersize=8, lw=2,
             label=r'Trotter $S_2$ ($\Delta t=0.1$)')
-    ax2.plot(time_pts, n2q_trot02, '^-', color='#FF9800', markersize=8, lw=2,
+    ax2.plot(time_pts_02, n2q_trot02, '^-', color='#FF9800', markersize=8, lw=2,
             label=r'Trotter $S_2$ ($\Delta t=0.2$)')
     ax2.plot(time_pts, n2q_hva, 'D-', color='#E91E63', markersize=8, lw=2,
             label='HVA 3-layer (composed)')
@@ -523,10 +527,11 @@ def plot_summary():
     # (b) Fidelity
     ax2 = fig.add_subplot(gs[0, 1])
     time_pts = [0.1, 0.2, 0.3, 0.5, 1.0]
+    time_pts_02 = [t for t in time_pts if str(t) in trotter['0.2']]
     fid01 = [trotter['0.1'][str(t)]['fidelity'] for t in time_pts]
-    fid02 = [trotter['0.2'][str(t)]['fidelity'] for t in time_pts]
+    fid02 = [trotter['0.2'][str(t)]['fidelity'] for t in time_pts_02]
     ax2.plot(time_pts, fid01, 's-', color='#2196F3', markersize=7, lw=2, label=r'Trot. $\Delta t$=0.1')
-    ax2.plot(time_pts, fid02, '^-', color='#FF9800', markersize=7, lw=2, label=r'Trot. $\Delta t$=0.2')
+    ax2.plot(time_pts_02, fid02, '^-', color='#FF9800', markersize=7, lw=2, label=r'Trot. $\Delta t$=0.2')
     ax2.plot(0.5, val['time_evolution']['fidelity'], 'D', color='#E91E63', markersize=10)
     ax2.set_xlabel('Time $t$')
     ax2.set_ylabel('Fidelity')

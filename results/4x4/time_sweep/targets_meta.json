@@ -1,0 +1,11 @@
+{
+  "1": {
+    "T": 0.5,
+    "n_terms": 8304835,
+    "largest_observable": 1239943,
+    "truncation_error_estimate": 0.0001332597996756931,
+    "dt": 0.01,
+    "order": 4,
+    "cutoff": 1e-08
+  }
+}
