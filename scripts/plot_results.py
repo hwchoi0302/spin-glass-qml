@@ -197,7 +197,11 @@ def plot_fidelity():
     ax1.set_ylabel('Fidelity $|\\langle\\psi_{\\rm approx}|\\psi_{\\rm exact}\\rangle|^2$')
     ax1.set_title('(a) State Fidelity vs Time')
     ax1.legend(fontsize=9, loc='lower left')
-    ax1.set_ylim(0.78, 1.005)
+    # Data-driven: every curve now sits close to 1, so a fixed floor would waste
+    # most of the axis. (It used to need one because the dt=0.2 curve dipped to
+    # 0.80 on a time-rounding artefact - see TrotterCircuit.num_steps.)
+    lo = min(min(y01), min(y02), min(yh))
+    ax1.set_ylim(lo - 0.15 * (1 - lo), 1 + 0.03 * (1 - lo))
     ax1.grid(True, alpha=0.3)
 
     # --- Panel (b): 1 - Fidelity (infidelity, log scale) ---
