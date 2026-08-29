@@ -235,7 +235,16 @@ def _make_trainer(config, model, mode, **kwargs):
     )
 
 
-def stage3_train(config, model, targets, out_dir):
+def stage3_train(config, model, targets, out_dir, parts=('te', 'gs')):
+    """Run the BP-PPS training stage.
+
+    ``parts`` selects which halves to (re)train. They are independent: the
+    time-evolution half consumes the target SPOs, the ground-state half only
+    needs the Hamiltonian. Iterating on a ground-state setting - the initial
+    product state, the truncation delta - therefore does not need the ~78 min
+    time-evolution run redone, and redoing it would also invalidate
+    composition_fidelity.json for no reason.
+    """
     banner("STAGE 3: BP-PPS training")
     opt = config['optimizer']
     n_layers = config['ansatz']['n_layers']
@@ -248,18 +257,29 @@ def stage3_train(config, model, targets, out_dir):
     )
     print(f"  Initialisation: {init_desc}")
 
-    section("Time-evolution compression")
-    te_trainer = _make_trainer(config, model, 'time_evolution',
-                               target_spos=targets)
-    _, te_record = te_trainer.optimize(opt, params_init=params_init)
-    te_record['delta_t'] = delta_t
-    with open(os.path.join(out_dir, 'trained_params.json'), 'w') as f:
-        json.dump(te_record, f, indent=2)
-    print(f"  Saved: trained_params.json")
+    te_record = gs_record = None
+
+    if 'te' in parts:
+        section("Time-evolution compression")
+        te_trainer = _make_trainer(config, model, 'time_evolution',
+                                   target_spos=targets)
+        _, te_record = te_trainer.optimize(opt, params_init=params_init)
+        te_record['delta_t'] = delta_t
+        with open(os.path.join(out_dir, 'trained_params.json'), 'w') as f:
+            json.dump(te_record, f, indent=2)
+        print(f"  Saved: trained_params.json")
+        print("  NOTE: composition_fidelity.json is derived from this file - "
+              "re-run `python scripts/plot_extended.py --part 1`.")
+
+    if 'gs' not in parts:
+        return te_record, gs_record
 
     section("Ground-state preparation")
+    gs_init = opt.get('ground_state', {}).get('initial_state', 'plus')
+    print(f"  Initial product state: |{'+' if gs_init == 'plus' else '0'}>^n")
     gs_trainer = _make_trainer(config, model, 'ground_state',
-                               hamiltonian_spo=hamiltonian_spo(model))
+                               hamiltonian_spo=hamiltonian_spo(model),
+                               initial_state=gs_init)
     _, gs_record = gs_trainer.optimize(opt, params_init=params_init)
     with open(os.path.join(out_dir, 'gs_trained_params.json'), 'w') as f:
         json.dump(gs_record, f, indent=2)
@@ -343,7 +363,14 @@ def stage4_validate(config, model, targets, te_record, gs_record,
         })
 
         section("Ground state")
-        psi_gs = np.array(sv_init.evolve(hva.build_circuit(gs_params)))
+        # Must start from the same product state the trainer optimised for,
+        # otherwise the BP-PPS energy and the statevector energy are simply
+        # two different quantities and the cross-check is meaningless.
+        gs_init = gs_record.get('initial_state', 'zero')
+        sv_gs_init = Statevector.from_label(
+            ('+' if gs_init == 'plus' else '0') * model.num_qubits)
+        print(f"  initial state         = |{'+' if gs_init == 'plus' else '0'}>^n")
+        psi_gs = np.array(sv_gs_init.evolve(hva.build_circuit(gs_params)))
         E_sv = ed.compute_energy(psi_gs, model.bonds, model.J, model.h)
         E0 = ed.ground_energy()
         _, states = ed.ground_state(k=1)
@@ -357,7 +384,7 @@ def stage4_validate(config, model, targets, te_record, gs_record,
         print(f"  GS fidelity           = {fid_gs:.10f}")
         validation['ground_state'].update({
             'ed_ground_energy': E0, 'gs_energy_statevector': E_sv,
-            'gs_fidelity': fid_gs,
+            'gs_fidelity': fid_gs, 'initial_state': gs_init,
             'energy_gap': gs_record['final_loss'] - E0,
             'bppps_vs_statevector_gap': abs(gs_record['final_loss'] - E_sv),
         })
@@ -379,6 +406,12 @@ def main() -> None:
                         metavar='section.key=value')
     parser.add_argument('--stages', type=int, nargs='+', default=[1, 2, 3, 4],
                         choices=[1, 2, 3, 4], help='Stages to run')
+    parser.add_argument('--train', nargs='+', default=['te', 'gs'],
+                        choices=['te', 'gs'],
+                        help='Which halves of stage 3 to train. The two are '
+                             'independent; "--train gs" skips the ~78 min '
+                             'time-evolution run when only a ground-state '
+                             'setting changed.')
     args = parser.parse_args()
 
     config = apply_overrides(load_config(), args.overrides)
@@ -390,6 +423,8 @@ def main() -> None:
     print(describe(config))
     print(f"  output   : {out_dir}")
     print(f"  stages   : {args.stages}")
+    if 3 in args.stages:
+        print(f"  train    : {args.train}")
 
     t0 = time.time()
     targets = ed_results = te_record = gs_record = None
@@ -399,15 +434,17 @@ def main() -> None:
     if 2 in args.stages:
         ed_results, _ = stage2_baselines(config, model, out_dir)
     if 3 in args.stages:
-        if targets is None:
+        if targets is None and 'te' in args.train:
             targets = stage1_targets(config, model, out_dir)
-        te_record, gs_record = stage3_train(config, model, targets, out_dir)
+        te_record, gs_record = stage3_train(config, model, targets or {},
+                                            out_dir, parts=tuple(args.train))
     if 4 in args.stages:
         if targets is None:
             targets = stage1_targets(config, model, out_dir)
         if te_record is None:
             with open(os.path.join(out_dir, 'trained_params.json')) as f:
                 te_record = json.load(f)
+        if gs_record is None:
             with open(os.path.join(out_dir, 'gs_trained_params.json')) as f:
                 gs_record = json.load(f)
         if ed_results is None:

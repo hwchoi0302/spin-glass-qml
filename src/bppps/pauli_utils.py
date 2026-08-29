@@ -58,6 +58,39 @@ def is_iz_only(label: str) -> bool:
     return all(c in ('I', 'Z') for c in label)
 
 
+def is_ix_only(label: str) -> bool:
+    """Check if a Pauli string contains only I and X (no Y or Z).
+
+    The |+> counterpart of :func:`is_iz_only`: ⟨+|P|+⟩ = 1 for these and 0
+    otherwise, since X|+> = |+> and ⟨+|Z|+⟩ = ⟨+|Y|+⟩ = 0.
+    """
+    return all(c in ('I', 'X') for c in label)
+
+
+# Product states this codebase can start a ground-state circuit from, and the
+# filter picking the Pauli strings with unit expectation value in each.
+PRODUCT_STATE_FILTERS = {
+    'zero': is_iz_only,   # |0...0>
+    'plus': is_ix_only,   # |+...+>
+}
+
+
+def product_state_filter(initial_state: str):
+    """Return the ⟨s|P|s⟩ = 1 filter for a supported product state ``|s>``.
+
+    ``E = sum of a_P over the strings this accepts`` is then the energy of the
+    propagated Hamiltonian in that state, which is what the ground-state
+    training loop optimises.
+    """
+    try:
+        return PRODUCT_STATE_FILTERS[initial_state]
+    except KeyError:
+        raise ValueError(
+            f"unknown initial_state {initial_state!r}; "
+            f"expected one of {sorted(PRODUCT_STATE_FILTERS)}"
+        ) from None
+
+
 def make_observable_label(num_qubits: int, pauli: str, qubit: int) -> str:
     """Create a single-site observable label.
 

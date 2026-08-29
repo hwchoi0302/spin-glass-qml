@@ -577,6 +577,71 @@ def test_14_trotter_sequence_reversal_invariant():
 
     print("  ✅ PASSED\n")
 
+
+def test_15_plus_initial_state():
+    """|+>^n 초기상태 경로가 실제 회로와 일치하는지 검증.
+
+    바닥상태 훈련의 에너지는 전파된 해밀토니안에서 <s|P|s> = 1 인 파울리 문자열의
+    계수 합이다. |0...0> 이면 I/Z 문자열이고 |+...+> 이면 I/X 문자열이다. 필터를
+    바꾼 것이 전부이므로, 틀리면 BP-PPS 에너지가 실제 회로의 에너지와 어긋난다.
+
+    같이 확인하는 것: 패리티. ΠX = Π_i X_i 는 H 와도 HVA 게이트 전부와도 교환하고
+    |+...+> 는 그 +1 고유상태이므로, U(θ)|+...+> 는 어떤 θ 에서도 +1 섹터에
+    남아야 한다. 반면 |0...0> 는 패리티 고유상태가 아니라 <ΠX> = 0 이 된다.
+    이것이 |0...0> 에서 바닥상태 fidelity 가 0.5 를 못 넘는 이유다.
+    """
+    print("=" * 60)
+    print("TEST 15: |+>^n ground-state path (2x2, 2 layers)")
+    print("=" * 60)
+
+    from qiskit.quantum_info import Statevector
+    from bppps import BPPPSTrainer
+    from bppps.pauli_utils import make_observable_label
+
+    model = SpinGlass2D(Lx=2, Ly=2, h=1.0, coupling_type='ea_bimodal', seed=42)
+    N = model.num_qubits
+    hva = HVA(num_qubits=N, bonds=model.bonds, n_layers=2, Lx=2, Ly=2)
+
+    ham = {}
+    for idx, (i, j) in enumerate(model.bonds):
+        chars = ['I'] * N
+        chars[i] = 'Z'
+        chars[j] = 'Z'
+        ham[''.join(chars)] = ham.get(''.join(chars), 0.0) - model.J[idx]
+    for q in range(N):
+        key = make_observable_label(N, 'X', q)
+        ham[key] = ham.get(key, 0.0) - model.h
+
+    H = model.build_sparse_matrix()
+    rng = np.random.default_rng(11)
+    params = rng.normal(0.0, 0.7, size=2 * (N + len(model.bonds)))
+
+    all_flip = np.arange(2 ** N) ^ (2 ** N - 1)
+    for init, label in (('zero', '0'), ('plus', '+')):
+        trainer = BPPPSTrainer(
+            num_qubits=N, bonds=model.bonds, substep_bonds=hva.substep_bonds,
+            n_layers=2, delta=0.0, mode='ground_state', hamiltonian_spo=ham,
+            initial_state=init,
+        )
+        E_spd, _ = trainer.train_step(params)
+        psi = np.array(
+            Statevector.from_label(label * N).evolve(hva.build_circuit(params)))
+        E_sv = float(np.real(np.conj(psi) @ (H @ psi)))
+        parity = float(np.real(np.conj(psi) @ psi[all_flip]))
+        print(f"  |{label}>^n : E_SPD = {E_spd:.10f}  E_statevector = {E_sv:.10f}"
+              f"  <PiX> = {parity:+.6f}")
+        assert abs(E_spd - E_sv) < 1e-9, \
+            f"|{label}>^n: SPD energy {E_spd} != circuit energy {E_sv}"
+        if init == 'plus':
+            assert abs(parity - 1.0) < 1e-9, \
+                f"U|+>^n left the +1 parity sector (<PiX> = {parity})"
+        else:
+            assert abs(parity) < 1e-9, \
+                f"U|0>^n should have <PiX> = 0, got {parity}"
+
+    print("  ✅ PASSED\n")
+
+
 if __name__ == '__main__':
     test_1_ferromagnetic()
     test_2_pauli_op_consistency()
@@ -592,7 +657,8 @@ if __name__ == '__main__':
     test_12_truncation_error_estimate()
     test_13_two_stage_optimizer()
     test_14_trotter_sequence_reversal_invariant()
+    test_15_plus_initial_state()
 
     print("=" * 60)
-    print("ALL 14 TESTS PASSED ✅")
+    print("ALL 15 TESTS PASSED ✅")
     print("=" * 60)

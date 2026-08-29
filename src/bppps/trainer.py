@@ -32,7 +32,7 @@ import numpy as np
 from scipy.optimize import minimize
 
 from .ose_regularizer import compute_ose, ose_gradient_seed
-from .pauli_utils import is_iz_only, make_observable_label
+from .pauli_utils import make_observable_label, product_state_filter
 from .propagation import (
     SPO,
     TruncationStats,
@@ -73,6 +73,7 @@ class BPPPSTrainer:
         delta_factor: float = 0.1,
         error_ratio: float = 0.1,
         patience: int = 10,
+        initial_state: str = 'zero',
     ):
         self.num_qubits = num_qubits
         self.bonds = bonds
@@ -85,6 +86,16 @@ class BPPPSTrainer:
         self.mode = mode
         self.target_spos = target_spos or {}
         self.hamiltonian_spo = hamiltonian_spo or {}
+
+        # Product state the ground-state circuit starts from. |+...+> is the
+        # default choice for this model: Pi_i X_i commutes with H and with every
+        # HVA gate, |+...+> is its +1 eigenstate, and stoquasticity forces the
+        # ground state into that same +1 sector at any size (Perron-Frobenius
+        # makes the ground-state amplitudes positive, so Pi X cannot flip its
+        # sign). Starting from |0...0> instead splits the circuit evenly across
+        # both parity sectors and caps the ground-state fidelity at 0.5.
+        self.initial_state = initial_state
+        self._state_filter = product_state_filter(initial_state)
 
         # Adaptive truncation schedule
         self.min_delta = min_delta
@@ -184,11 +195,13 @@ class BPPPSTrainer:
                            ) -> Tuple[float, np.ndarray]:
         """One training step for ground-state preparation.
 
-        Propagate H through the HVA, then E = sum_{P in P_{I,Z}} a_P, since
-        Tr[|0><0| P] = 1 exactly for the I/Z strings and 0 otherwise.
+        Propagate H through the HVA, then E = sum over the Pauli strings with
+        unit expectation value in the initial product state, since Tr[|s><s| P]
+        is 1 for those and 0 otherwise. For |0...0> those are the I/Z strings;
+        for |+...+> the I/X strings. See ``initial_state``.
 
-        Seed (Eq. 24): dL/da_P = 1 on P_{I,Z}. That vector is dense over the
-        2^n I/Z strings, so - as the paper does - it is restricted to the
+        Seed (Eq. 24): dL/da_P = 1 on that same set. The vector is dense over
+        the 2^n strings, so - as the paper does - it is restricted to the
         strings actually carried by the propagated operator.
 
         Returns:
@@ -201,8 +214,9 @@ class BPPPSTrainer:
             self.hamiltonian_spo, gate_seq, self.delta, stats
         )
 
-        energy = sum(a_P for P, a_P in evolved.items() if is_iz_only(P))
-        seed = {P: 1.0 for P in evolved if is_iz_only(P)}
+        keep = self._state_filter
+        energy = sum(a_P for P, a_P in evolved.items() if keep(P))
+        seed = {P: 1.0 for P in evolved if keep(P)}
         loss = energy
 
         if self.lambda_ose > 0:
@@ -459,6 +473,7 @@ class BPPPSTrainer:
             'losses': adam_losses + lbfgs_losses,
             'final_loss': final_loss,
             'n_layers': self.n_layers,
+            'initial_state': self.initial_state,
             'n_params': self.n_params,
             'mode': self.mode,
             'final_delta': self.delta,
