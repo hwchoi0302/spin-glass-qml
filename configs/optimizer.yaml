@@ -50,11 +50,19 @@ optimizer:
 truncation:
   # Coefficient threshold delta for the training-time SPD propagation.
   initial_delta: 1.0e-3
-  min_delta: 1.0e-5
+  # 1e-7, not the earlier 1e-5: the ground-state run needs room to keep
+  # tightening. See docs/issues/01-scale-plan.md, "적응적 절단이 작동하지
+  # 않았습니다" -- the old floor was never reached anyway because the
+  # tightening criterion never fired.
+  min_delta: 1.0e-7
   adaptive: true
   # Tighten delta by `factor` whenever the tracked truncation-error estimate
-  # (BP-PPS Appendix B, Eq. B16) exceeds `error_ratio` x the current loss,
-  # i.e. whenever the reported loss is no longer trustworthy at its own scale.
+  # (BP-PPS Appendix B, Eq. B16) exceeds `error_ratio` x a mode-dependent
+  # scale, i.e. whenever the reported loss is no longer trustworthy at its own
+  # scale. Time evolution compares against sqrt(L_{X,Z}); the ground state
+  # compares against the energy decrease over the last `patience` epochs, since
+  # |E| is set by lattice size rather than by convergence and gives a threshold
+  # that never trips. See BPPPSTrainer.error_scale.
   factor: 0.1
   error_ratio: 0.1
   # Minimum epochs between two tightenings, so Adam can re-equilibrate.

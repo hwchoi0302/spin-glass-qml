@@ -42,7 +42,7 @@ source .venv/bin/activate
 python scripts/00_validate_small.py
 ```
 
-**반드시 `ALL 15 TESTS PASSED` 가 나와야 합니다.** 수 분이면 끝납니다.
+**반드시 `ALL 16 TESTS PASSED` 가 나와야 합니다.** 수 분이면 끝납니다.
 
 | 테스트 | 무엇을 지키나 |
 |:--|:--|
@@ -87,7 +87,8 @@ k=2 가 나오면 §3 의 기준으로 판단한 뒤 아래로 넘어가세요.
 python scripts/00_validate_small.py
 ```
 
-`ALL 15 TESTS PASSED` 여야 합니다. TEST 15 가 새 초기상태 경로를 지킵니다.
+`ALL 16 TESTS PASSED` 여야 합니다. TEST 15 가 새 초기상태 경로를, TEST 16 이
+적응적 절단이 실제로 발동하는지를 지킵니다.
 
 **2단계 — `|+...+>` 로 바닥상태 재훈련.**
 

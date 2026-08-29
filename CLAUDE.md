@@ -56,5 +56,5 @@ Update that file at the end of a session so the next one starts warm.
    pushed toward the input); `propagate_backward` walks them forward. This was
    a real bug once — see `e9c3b50`.
 4. **Bitpacking from 7×7 up.** 4×4 stays on string-keyed dicts.
-5. `scripts/00_validate_small.py` must print `ALL 15 TESTS PASSED` before any
+5. `scripts/00_validate_small.py` must print `ALL 16 TESTS PASSED` before any
    result from a run is trusted.

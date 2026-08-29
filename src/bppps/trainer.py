@@ -255,34 +255,85 @@ class BPPPSTrainer:
     # Adaptive truncation
     # ------------------------------------------------------------------
 
-    def error_scale(self, loss: float) -> float:
-        """Coefficient-space quantity the truncation error is compared to.
+    def recent_progress(self, losses: List[float]) -> float:
+        """How much the loss has moved over the last ``patience`` epochs.
+
+        This is the signal the truncation error has to be compared against for
+        ground-state runs; see :meth:`error_scale`.
+
+        Args:
+            losses: Loss history, most recent last.
+
+        Returns:
+            |L(now) - L(patience epochs ago)|, or +inf while the history is
+            shorter than that (too early to judge, so never tighten on it).
+        """
+        if len(losses) <= self.patience:
+            return float('inf')
+        return abs(losses[-1 - self.patience] - losses[-1])
+
+    def error_scale(self, loss: float,
+                    recent_progress: Optional[float] = None) -> float:
+        """Quantity the tracked truncation error is compared against.
 
         eps_emp of Eq. (B16) lives in coefficient space (it is an l2 norm of
         discarded weight), so it has to be compared against something in the
-        same units, not against the loss directly:
+        same units, not against the loss directly.
 
-          * ground state: the energy is *linear* in the coefficients, so its
-            error is of order eps_emp itself - compare to |E|;
-          * time-evolution: L_{X,Z} is a *squared* coefficient distance, so
-            the comparable residual is sqrt(L).
+        For time evolution that is easy: L_{X,Z} is a *squared* coefficient
+        distance, so the comparable residual is sqrt(L), which falls as the fit
+        improves and so eventually trips the threshold.
+
+        For the ground state there is no such residual - the energy is not a
+        distance to anything known, and it does not go to zero. This used to
+        compare against |E|, which does not work: |E| is set by the size of the
+        lattice, not by how well converged the run is, so the threshold is
+        enormous and never trips. At 4x4 that was 0.1 * 21.207 = 2.121 against a
+        tracked error of 0.1205, and the ground-state run finished at its
+        *starting* delta of 1e-3 having never tightened once. It gets worse with
+        size, since |E| grows with the bond count while the precision needed
+        does not: at 10x10 the threshold would be about 16.
+
+        What matters instead is whether truncation noise has caught up with the
+        progress the optimiser is still making. So the scale is the energy
+        decrease over the last ``patience`` epochs: large early on, shrinking
+        towards zero as the run converges, which is exactly when a smaller delta
+        is worth paying for. It needs no oracle and no absolute tolerance, and
+        it is independent of lattice size.
+
+        Args:
+            loss: Current loss value.
+            recent_progress: Output of :meth:`recent_progress`. Ground-state
+                runs fall back to the old |E| behaviour when it is omitted,
+                so direct callers of this method keep working.
 
         Returns:
             The scale against which ``error_ratio`` is applied.
         """
         if self.mode == 'ground_state':
-            return abs(loss)
+            if recent_progress is None:
+                return abs(loss)
+            return recent_progress
         return float(np.sqrt(max(loss, 0.0)))
 
-    def _maybe_tighten_delta(self, epoch: int, loss: float,
+    def _maybe_tighten_delta(self, epoch: int, losses: List[float],
                              last_change: int) -> Tuple[bool, int]:
-        """Tighten delta when the tracked error dominates the residual."""
+        """Tighten delta when the tracked error dominates the residual.
+
+        Args:
+            epoch: Current epoch, 1-based.
+            losses: Loss history, most recent last.
+            last_change: Epoch at which delta last changed.
+
+        Returns:
+            (whether delta was tightened, updated last_change)
+        """
         if not self.adaptive_delta or self.delta <= self.min_delta:
             return False, last_change
         if epoch - last_change < self.patience:
             return False, last_change
 
-        scale = self.error_scale(loss)
+        scale = self.error_scale(losses[-1], self.recent_progress(losses))
         if self.last_error_estimate <= self.error_ratio * scale:
             return False, last_change
 
@@ -341,7 +392,7 @@ class BPPPSTrainer:
             params -= lr * m_hat / (np.sqrt(v_hat) + eps)
 
             tightened, last_delta_change = self._maybe_tighten_delta(
-                epoch, loss, last_delta_change
+                epoch, losses, last_delta_change
             )
             if tightened and verbose:
                 print(f"    [epoch {epoch}] truncation error "

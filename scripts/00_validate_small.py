@@ -642,6 +642,70 @@ def test_15_plus_initial_state():
     print("  ✅ PASSED\n")
 
 
+def test_16_adaptive_truncation_fires():
+    """The ground-state tightening criterion has to actually trip.
+
+    Regression guard for the 4x4 run that finished at its *starting* delta of
+    1e-3 having never tightened once: error_scale compared eps_emp against |E|,
+    so the threshold was 0.1 * 21.207 = 2.121 against a tracked error of 0.1205.
+    The optimiser then stopped 1.09 above where the same ansatz reaches without
+    truncation, and nothing in the run reported a problem.
+    """
+    print("=" * 60)
+    print("TEST 16: adaptive truncation fires for the ground state")
+    print("=" * 60)
+
+    import math
+    from bppps import BPPPSTrainer
+
+    model = SpinGlass2D(2, 2, h=1.0, seed=7)
+
+    def trainer(mode, **kw):
+        return BPPPSTrainer(
+            num_qubits=model.num_qubits, bonds=model.bonds,
+            substep_bonds=model.substep_bonds, n_layers=2, mode=mode,
+            delta=1e-3, min_delta=1e-7, adaptive_delta=True,
+            delta_factor=0.1, error_ratio=0.1, patience=10, **kw)
+
+    eps = 0.1205                      # the error estimate the 4x4 run reported
+    energy = -21.207                  # and the energy it reported it at
+
+    # The old scale, kept as the fallback when no progress is supplied.
+    t = trainer('ground_state', hamiltonian_spo={})
+    old_scale = t.error_scale(energy)
+    print(f"  |E| scale     : {old_scale:8.3f} -> threshold "
+          f"{0.1 * old_scale:.3f}, eps_emp {eps:.4f} -> would not fire")
+    assert eps <= 0.1 * old_scale, "the |E| threshold was supposed to be vacuous"
+
+    # Converged run: the energy has stopped moving, so truncation noise now
+    # dominates whatever progress is left and delta must come down.
+    t = trainer('ground_state', hamiltonian_spo={})
+    t.last_error_estimate = eps
+    converged = [energy - 1e-4 * i for i in range(30)]
+    fired, _ = t._maybe_tighten_delta(30, converged, 0)
+    print(f"  progress scale: {t.recent_progress(converged):8.5f} -> threshold "
+          f"{0.1 * t.recent_progress(converged):.6f}, fired={fired}, "
+          f"delta -> {t.delta:.0e}")
+    assert fired, "converged ground-state run failed to tighten delta"
+    assert t.delta == 1e-4
+
+    # Too early to judge: fewer than `patience` epochs of history.
+    t = trainer('ground_state', hamiltonian_spo={})
+    t.last_error_estimate = 1e9
+    assert t.recent_progress([energy] * 5) == float('inf')
+    assert not t._maybe_tighten_delta(5, [energy] * 5, 0)[0], \
+        "tightened before there was enough history to judge progress"
+    print("  short history : never fires ✓")
+
+    # Time evolution keeps sqrt(L), which already worked.
+    t = trainer('time_evolution', target_spos={})
+    loss = 0.014942837879348341
+    assert abs(t.error_scale(loss) - math.sqrt(loss)) < 1e-15
+    print(f"  time evolution: sqrt(L) = {t.error_scale(loss):.4f} unchanged ✓")
+
+    print("  ✅ PASSED\n")
+
+
 if __name__ == '__main__':
     test_1_ferromagnetic()
     test_2_pauli_op_consistency()
@@ -658,7 +722,8 @@ if __name__ == '__main__':
     test_13_two_stage_optimizer()
     test_14_trotter_sequence_reversal_invariant()
     test_15_plus_initial_state()
+    test_16_adaptive_truncation_fires()
 
     print("=" * 60)
-    print("ALL 15 TESTS PASSED ✅")
+    print("ALL 16 TESTS PASSED ✅")
     print("=" * 60)
