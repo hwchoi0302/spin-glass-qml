@@ -119,6 +119,11 @@ python scripts/02_time_sweep.py
 self-contained procedure with pass/fail criteria at every step, resume
 instructions, and the tables to fill in when reporting results.
 
+**Working on the project?** Open [`docs/issues/`](docs/issues/README.md). Work is
+split into one file per topic — scale plan, comparison models, engine
+performance, hardware, writing — so a session can pick up a single thread
+without carrying the rest. `CLAUDE.md` holds the cross-cutting rules.
+
 Optional Julia path (faster for large targets):
 
 ```bash
