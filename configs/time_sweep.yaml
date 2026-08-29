@@ -6,7 +6,12 @@ time_sweep:
   # one chunk at a time and snapshotting, so the whole series costs the same as
   # the largest k alone.
   chunk_delta_t: 0.5
-  snapshots: [1, 2, 4, 8, 16]        # T = 0.5, 1, 2, 4, 8
+  # 2026-08-29: [1,2,4,8,16] tried, cut to [1] after k=2 alone consumed hours
+  # of CPU time to reach the 2nd of 32 observables (py-spy dump on the running
+  # process) -- runtime, not the term-count budget in RUNBOOK.md SS3, is what
+  # actually blocks this sweep. See docs/issues/01-scale-plan.md.
+  snapshots: [1]                    # T = 0.5 only, for now
+
 
   # Trotter step for the sweep targets. Coarser than the target.dt used for the
   # single-point T1 run (0.001) because S4 error scales as O(T * dt^4):
