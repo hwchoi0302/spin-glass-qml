@@ -44,6 +44,18 @@ with open(os.path.join(RESULTS_DIR, 'gs_trained_params.json')) as f:
 with open(os.path.join(RESULTS_DIR, 'validation_results.json')) as f:
     val = json.load(f)
 
+# Composition fidelities of U(theta; 0.5)^k, produced by plot_extended.py --part 1.
+# Optional: absent on a fresh run that has not built it yet.
+_comp_path = os.path.join(RESULTS_DIR, 'composition_fidelity.json')
+comp = None
+if os.path.exists(_comp_path):
+    with open(_comp_path) as f:
+        comp = json.load(f)
+else:
+    print("[warn] composition_fidelity.json missing - "
+          "HVA curve will show the t=0.5 point only. "
+          "Run: python scripts/plot_extended.py --part 1")
+
 # Global style
 plt.rcParams.update({
     'font.family': 'DejaVu Sans',
@@ -130,60 +142,79 @@ def plot_lattice():
 # Figure 2: Time-evolution Fidelity comparison
 # ============================================================================
 def plot_fidelity():
-    """Compare fidelity: ED (exact), Trotter dt=0.1, Trotter dt=0.2, HVA."""
+    """Compare fidelity: ED (exact), Trotter dt=0.1, Trotter dt=0.2, HVA.
+
+    The HVA is trained at a single chunk Delta t = 0.5; longer times are reached
+    by composing that chunk k times, U(theta; 0.5)^k. Those composed fidelities
+    live in composition_fidelity.json (plot_extended.py --part 1), which also
+    re-evaluates both Trotter curves on the same extended grid, so all three
+    curves span t = 0.5 ... 2.5 here rather than stopping at t = 1.0.
+    """
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5))
 
     time_pts = [0.1, 0.2, 0.3, 0.5, 1.0]
     # dt=0.2 has no entry for t=0.1 (rounds to 0 Trotter steps, so it was skipped).
     time_pts_02 = [t for t in time_pts if str(t) in trotter['0.2']]
 
-    # Trotter fidelities
-    fid_trotter_01 = [trotter['0.1'][str(t)]['fidelity'] for t in time_pts]
-    fid_trotter_02 = [trotter['0.2'][str(t)]['fidelity'] for t in time_pts_02]
+    # Trotter fidelities on the short grid.
+    t01 = {t: trotter['0.1'][str(t)]['fidelity'] for t in time_pts}
+    t02 = {t: trotter['0.2'][str(t)]['fidelity'] for t in time_pts_02}
 
-    # HVA fidelity - we only have t=0.5 from validation
-    # For the other time points, we need to compute them.
-    # For now, we'll use the t=0.5 result and mark it.
-    hva_fid_05 = val['time_evolution']['fidelity']
+    # HVA: the trained chunk, plus its k-fold compositions when available.
+    hva = {0.5: val['time_evolution']['fidelity']}
+    if comp is not None:
+        for t, f in zip(comp['time_pts'], comp['hva_fid']):
+            hva[t] = f
+        # Same extended grid for Trotter, so the comparison stays like-for-like.
+        for t, f in zip(comp['time_pts'], comp['trot01_fid']):
+            t01[t] = f
+        for t, f in zip(comp['time_pts'], comp['trot02_fid']):
+            t02[t] = f
+
+    def xy(d):
+        ts = sorted(d)
+        return ts, [d[t] for t in ts]
+
+    x01, y01 = xy(t01)
+    x02, y02 = xy(t02)
+    xh, yh = xy(hva)
+    hva_fid_05 = hva[0.5]
 
     # --- Panel (a): Fidelity vs time ---
-    ax1.plot(time_pts, [1.0]*len(time_pts), 'k--', lw=1.5, alpha=0.5, label='ED (exact)')
-    ax1.plot(time_pts, fid_trotter_01, 's-', color='#2196F3', markersize=8, lw=2,
-            label=r'Trotter $S_2$ ($\Delta t=0.1$)')
-    ax1.plot(time_pts_02, fid_trotter_02, '^-', color='#FF9800', markersize=8, lw=2,
-            label=r'Trotter $S_2$ ($\Delta t=0.2$)')
-    ax1.plot(0.5, hva_fid_05, 'D', color='#E91E63', markersize=12, zorder=5,
-            label=f'HVA 3-layer (t=0.5)')
-    ax1.annotate(f'{hva_fid_05:.4f}', xy=(0.5, hva_fid_05),
-                xytext=(0.65, hva_fid_05 - 0.015), fontsize=10,
-                arrowprops=dict(arrowstyle='->', color='#E91E63'))
+    ax1.plot([min(x01), max(x01)], [1.0, 1.0], 'k--', lw=1.5, alpha=0.5,
+             label='ED (exact)')
+    ax1.plot(x01, y01, 's-', color='#2196F3', markersize=7, lw=2,
+             label=r'Trotter $S_2$ ($\Delta t=0.1$)')
+    ax1.plot(x02, y02, '^-', color='#FF9800', markersize=7, lw=2,
+             label=r'Trotter $S_2$ ($\Delta t=0.2$)')
+    ax1.plot(xh, yh, 'D-', color='#E91E63', markersize=8, lw=2, zorder=5,
+             label=r'HVA 3-layer, $U(\theta;0.5)^k$')
+    ax1.plot(0.5, hva_fid_05, 'D', color='#E91E63', markersize=13,
+             markeredgecolor='black', markeredgewidth=1.2, zorder=6,
+             label='HVA trained chunk ($k=1$)')
 
     ax1.set_xlabel('Time $t$')
     ax1.set_ylabel('Fidelity $|\\langle\\psi_{\\rm approx}|\\psi_{\\rm exact}\\rangle|^2$')
     ax1.set_title('(a) State Fidelity vs Time')
-    ax1.legend(fontsize=10, loc='lower left')
-    ax1.set_ylim(0.82, 1.005)
+    ax1.legend(fontsize=9, loc='lower left')
+    ax1.set_ylim(0.78, 1.005)
     ax1.grid(True, alpha=0.3)
 
     # --- Panel (b): 1 - Fidelity (infidelity, log scale) ---
-    infid_trotter_01 = [1 - f for f in fid_trotter_01]
-    infid_trotter_02 = [1 - f for f in fid_trotter_02]
-    infid_hva = 1 - hva_fid_05
-
-    ax2.semilogy(time_pts, infid_trotter_01, 's-', color='#2196F3', markersize=8, lw=2,
-                label=r'Trotter $S_2$ ($\Delta t=0.1$)')
-    ax2.semilogy(time_pts_02, infid_trotter_02, '^-', color='#FF9800', markersize=8, lw=2,
-                label=r'Trotter $S_2$ ($\Delta t=0.2$)')
-    ax2.semilogy(0.5, infid_hva, 'D', color='#E91E63', markersize=12, zorder=5,
-                label=f'HVA 3-layer')
-    ax2.annotate(f'{infid_hva:.2e}', xy=(0.5, infid_hva),
-                xytext=(0.65, infid_hva * 2), fontsize=10,
-                arrowprops=dict(arrowstyle='->', color='#E91E63'))
+    ax2.semilogy(x01, [1 - f for f in y01], 's-', color='#2196F3',
+                 markersize=7, lw=2, label=r'Trotter $S_2$ ($\Delta t=0.1$)')
+    ax2.semilogy(x02, [1 - f for f in y02], '^-', color='#FF9800',
+                 markersize=7, lw=2, label=r'Trotter $S_2$ ($\Delta t=0.2$)')
+    ax2.semilogy(xh, [1 - f for f in yh], 'D-', color='#E91E63',
+                 markersize=8, lw=2, zorder=5, label=r'HVA, $U(\theta;0.5)^k$')
+    ax2.annotate(f'{1 - hva_fid_05:.2e}', xy=(0.5, 1 - hva_fid_05),
+                 xytext=(0.75, (1 - hva_fid_05) * 0.25), fontsize=10,
+                 arrowprops=dict(arrowstyle='->', color='#E91E63'))
 
     ax2.set_xlabel('Time $t$')
     ax2.set_ylabel('Infidelity $1 - F$')
     ax2.set_title('(b) Infidelity (log scale)')
-    ax2.legend(fontsize=10)
+    ax2.legend(fontsize=9)
     ax2.grid(True, alpha=0.3, which='both')
 
     plt.tight_layout()
@@ -298,34 +329,135 @@ def plot_observables():
 # ============================================================================
 # Figure 4: Training loss curves
 # ============================================================================
+def _split_optimizer_segments(data):
+    """Split a recorded loss history into (adam, lbfgsb) and flag probe points.
+
+    ``losses`` is the plain concatenation ``adam_losses + lbfgsb_losses``, but
+    the two halves are not the same kind of sequence. Adam records one loss per
+    epoch, and every one of those points is a real iterate - the small bumps in
+    it are momentum overshoot and belong on the curve. scipy's L-BFGS-B callback
+    also fires on the *trial* points of its line search, and a rejected trial can
+    sit far above the accepted iterates on either side of it: in the t=0.5 run
+    lbfgsb_losses[1] = 0.5428 sits between two points at 0.0153, a factor of 36.
+    Plotting the raw concatenation makes the run look like it diverged and
+    recovered.
+
+    So probes are only ever looked for inside the L-BFGS-B segment, where they
+    actually exist, and a point counts as one when it rises above the running
+    minimum by more than 5% of that segment's own span. The threshold is
+    relative to the segment rather than absolute so that this works unchanged
+    for the compression loss (order 1, positive) and for the ground-state
+    energy (order 20, negative). Probes are still drawn, as hollow markers,
+    but they are left out of the connecting line.
+
+    Returns ``(segments, n_total)`` where each segment is
+    ``(name, kept, probes)`` and ``kept``/``probes`` are ``(index, value)``
+    lists carrying the index into the concatenated history.
+    """
+    PROBE_SPAN_FRACTION = 0.05
+
+    adam = list(data.get('adam_losses') or [])
+    lbfgsb = list(data.get('lbfgsb_losses') or [])
+    if not adam and not lbfgsb:
+        # Older records only carry the merged history; show it as one segment.
+        merged = list(data['losses'])
+        return [('optimizer', list(enumerate(merged)), [])], len(merged)
+
+    segments = []
+    if adam:
+        segments.append(('Adam', list(enumerate(adam)), []))
+    if lbfgsb:
+        offset = len(adam)
+        span = max(lbfgsb) - min(lbfgsb)
+        tol = span * PROBE_SPAN_FRACTION
+        kept, probes = [], []
+        best = float('inf')
+        for i, v in enumerate(lbfgsb):
+            if v > best + tol:
+                probes.append((offset + i, v))
+            else:
+                kept.append((offset + i, v))
+                best = min(best, v)
+        segments.append(('L-BFGS-B', kept, probes))
+    return segments, len(adam) + len(lbfgsb)
+
+
 def plot_training():
     """Plot training loss curves for time-evolution and ground state."""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5))
 
     # --- Time-evolution loss ---
-    te_losses = te_data['losses']
-    epochs_te = list(range(1, len(te_losses) + 1))
-    ax1.semilogy(epochs_te, te_losses, '-', color='#E91E63', lw=2)
-    ax1.set_xlabel('Epoch')
+    segments, n_total = _split_optimizer_segments(te_data)
+    colors = {'Adam': '#E91E63', 'L-BFGS-B': '#3F51B5', 'optimizer': '#E91E63'}
+    shades = {'Adam': '#E91E63', 'L-BFGS-B': '#3F51B5', 'optimizer': 'none'}
+
+    x0 = 0
+    for name, kept, probes in segments:
+        n_seg = len(kept) + len(probes)
+        if len(segments) > 1:
+            ax1.axvspan(x0 + 0.5, x0 + n_seg + 0.5, color=shades[name],
+                        alpha=0.05, zorder=0)
+            ax1.text(x0 + n_seg / 2, 1.2, name, ha='center', fontsize=11,
+                     color=colors[name], fontweight='bold')
+        if kept:
+            xs = [i + 1 for i, _ in kept]
+            ys = [v for _, v in kept]
+            ax1.semilogy(xs, ys, '-', color=colors[name], lw=2,
+                         label=f'{name} (accepted)' if len(segments) > 1 else None)
+        if probes:
+            ax1.semilogy([i + 1 for i, _ in probes], [v for _, v in probes],
+                         'o', mfc='none', mec='#9E9E9E', ms=6, lw=0,
+                         label='line-search trial' if name == 'L-BFGS-B' else None)
+        x0 += n_seg
+
+    if len(segments) > 1:
+        boundary = len(segments[0][1]) + len(segments[0][2]) + 0.5
+        ax1.axvline(boundary, color='#616161', ls=':', lw=1.5)
+
+    final = te_data['losses'][-1]
+    ax1.axhline(y=final, color='gray', ls='--', alpha=0.5)
+    ax1.set_xlabel('Optimizer step')
     ax1.set_ylabel(r'$\mathcal{L}_{X,Z}$')
     ax1.set_title(r'(a) Time-Evolution Compression Loss ($\Delta t = 0.5$)')
     ax1.grid(True, alpha=0.3, which='both')
-    ax1.axhline(y=te_losses[-1], color='gray', ls='--', alpha=0.5)
-    ax1.text(len(te_losses)*0.6, te_losses[-1]*1.3,
-            f'Final: {te_losses[-1]:.4f}', fontsize=11, color='gray')
-    ax1.text(len(te_losses)*0.6, te_losses[0]*0.7,
-            f'99.9% reduction', fontsize=11, color='#E91E63', fontweight='bold')
+    ax1.text(n_total * 0.58, final * 1.35, f'Final: {final:.4f}',
+             fontsize=11, color='gray')
+    handles, labels = ax1.get_legend_handles_labels()
+    if handles:
+        ax1.legend(fontsize=9, loc='lower left')
 
     # --- Ground state energy ---
+    # Same two-optimizer structure as panel (a); here the loss is the energy.
     gs_losses = gs_data['losses']
-    epochs_gs = list(range(1, len(gs_losses) + 1))
-    ax2.plot(epochs_gs, gs_losses, '-', color='#9C27B0', lw=2, label='BP-PPS energy')
+    gs_segments, _ = _split_optimizer_segments(gs_data)
+    gs_colors = {'Adam': '#9C27B0', 'L-BFGS-B': '#00897B', 'optimizer': '#9C27B0'}
+
+    x0 = 0
+    for name, kept, probes in gs_segments:
+        n_seg = len(kept) + len(probes)
+        if len(gs_segments) > 1:
+            ax2.axvspan(x0 + 0.5, x0 + n_seg + 0.5, color=gs_colors[name],
+                        alpha=0.05, zorder=0)
+        if kept:
+            ax2.plot([i + 1 for i, _ in kept], [v for _, v in kept], '-',
+                     color=gs_colors[name], lw=2,
+                     label=f'BP-PPS energy ({name})' if len(gs_segments) > 1
+                     else 'BP-PPS energy')
+        if probes:
+            ax2.plot([i + 1 for i, _ in probes], [v for _, v in probes], 'o',
+                     mfc='none', mec='#9E9E9E', ms=6, lw=0,
+                     label='line-search trial' if name == 'L-BFGS-B' else None)
+        x0 += n_seg
+    if len(gs_segments) > 1:
+        ax2.axvline(len(gs_segments[0][1]) + len(gs_segments[0][2]) + 0.5,
+                    color='#616161', ls=':', lw=1.5)
+
     ax2.axhline(y=ed['ground_energy'], color='#333333', ls='--', lw=2,
                label=f'ED ground (E₀ = {ed["ground_energy"]:.2f})')
     ax2.set_xlabel('Epoch')
     ax2.set_ylabel('Energy $E(\\theta)$')
     ax2.set_title('(b) Ground State Training')
-    ax2.legend(fontsize=11)
+    ax2.legend(fontsize=9, loc='upper right')
     ax2.grid(True, alpha=0.3)
     ax2.text(len(gs_losses)*0.5, gs_losses[-1] + 0.5,
             f'Final: {gs_losses[-1]:.2f}\nGap: {gs_losses[-1] - ed["ground_energy"]:.2f}',

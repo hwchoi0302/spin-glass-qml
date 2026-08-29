@@ -191,10 +191,11 @@ def stage2_baselines(config, model, out_dir):
         trotter_results[str(dt)] = {}
         print(f"\n  dt={dt} (order {ht['order']}):")
         for t in time_points:
-            steps = int(round(t / dt))
-            if steps == 0:
-                print(f"    t={t:.1f}: rounds to 0 steps, skipped")
-                continue
+            # Ask the builder rather than re-deriving the step count here: it
+            # rounds up and shrinks the step to t/steps so the circuit lands on
+            # t exactly. A local int(round(...)) used to disagree with it and
+            # skip t < dt/2 outright.
+            steps = builder.num_steps(t, dt)
             qc = builder.build_circuit(t, dt, order=ht['order'])
             psi = np.array(sv_init.evolve(qc))
             obs = ed.local_observables(psi, model.bonds)

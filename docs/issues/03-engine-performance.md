@@ -60,3 +60,10 @@ BP-PPS 논문 Appendix C. 파울리 문자열 `P ∈ {I,X,Y,Z}^n` 을 문자열�
 - 정렬 배열 병합 방식이 dict 대비 실제로 얼마나 빠른지 — 측정해야 합니다.
 - 적응적 절단(adaptive truncation)이 시간 스윕에서 실제로 도움이 되는지.
   T1-T stage 4의 δ 스윕이 근거를 줍니다.
+- **병렬화·GPU 는 아직 손도 대지 않았습니다.** Python `propagation.py` 도 Julia
+  `bppps_engine.jl` 도 단일 스레드 `Dict{String,Float64}` 입니다. 데스크탑
+  Ryzen 5 5600 은 6코어/12스레드인데 항상 1코어만 씁니다. 순서는
+  ① 비트패킹(`UInt64` 키) → ② 스레드 병렬 → ③ GPU 입니다. GPU를 먼저 보면 안
+  되는 이유는, 지금 커널이 문자열 해시맵 삽입이라 GPU로 옮길 대상 자체가
+  아니기 때문입니다. 정렬 기반 병합으로 바꾼 뒤에야 GPU가 의미를 가집니다.
+  (01 세션에서 나온 질문. 자세한 근거는 `01-scale-plan.md` 의 "왜 CPU만 쓰나".)

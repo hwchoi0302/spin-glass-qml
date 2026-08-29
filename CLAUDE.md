@@ -32,8 +32,8 @@ Update that file at the end of a session so the next one starts warm.
 
 ## Hard rules
 
-1. **Two machines.** Code is written on the notebook; simulations run on the
-   desktop (RTX 2060). Do not launch a full-size run from the notebook session.
+1. **Two machines.** Code is written on the laptop; simulations run on the
+   desktop (AMD Ryzen 5 5600, RTX 2060). Do not launch a full-size run from the notebook session.
 2. **Python owns the couplings.** `scripts/00_build_model.py` is the only place
    `J` is generated. Julia loads `model_config.json` and validates the bond
    order; it must never call its own `build_bonds` to regenerate them.

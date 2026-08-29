@@ -455,6 +455,15 @@ def plot_combined_summary(comp_data, gs_results, E0):
 # Main
 # ============================================================================
 if __name__ == '__main__':
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--part', choices=['1', '2', 'all'], default='all',
+                    help="1 = composition fidelity only (statevector, ~minutes). "
+                         "2 = ground-state layer sweep only (BP-PPS training, hours). "
+                         "Part 1 depends on trained_params.json, so it must be re-run "
+                         "whenever the time-evolution training is re-run.")
+    args = ap.parse_args()
+
     t_start = time.time()
 
     # Part 1: Composition fidelity
@@ -465,6 +474,13 @@ if __name__ == '__main__':
     with open(comp_path, 'w') as f:
         json.dump(comp_data, f, indent=2)
     print(f"\nSaved: {comp_path}")
+
+    plot_composition_fidelity(comp_data)
+
+    if args.part == '1':
+        elapsed = time.time() - t_start
+        print(f"\nPart 1 only. Total time: {elapsed:.1f}s")
+        raise SystemExit(0)
 
     # Part 2: GS training with multiple layers
     gs_results, E0 = train_ground_state_multi_layers()
@@ -478,7 +494,6 @@ if __name__ == '__main__':
 
     # Plot everything
     print("\nGenerating plots...")
-    plot_composition_fidelity(comp_data)
     plot_gs_energy_vs_layers(gs_results, E0)
     plot_combined_summary(comp_data, gs_results, E0)
 

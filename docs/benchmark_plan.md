@@ -11,7 +11,7 @@
 
 이 프로젝트 전체가 답해야 하는 정량적 질문은 하나입니다.
 
-$$\exists\, T \;:\; \underbrace{\text{SPD·TN 실패}}_{(a)} \;\wedge\; \underbrace{\text{하드웨어 예산 이내}}_{(b)} \;\wedge\; \underbrace{\text{압축 회로가 여전히 정확}}_{(c)}$$
+$$\exists\, T \;:\; \underbrace{\text{SPD·TN failed}}_{(a)} \;\wedge\; \underbrace{\text{under hardware budget}}_{(b)} \;\wedge\; \underbrace{\text{compressed circuit is still correct}}_{(c)}$$
 
 - `(a)` 만 만족하면 → 고전이 못 하는 건 맞지만 하드웨어도 못 함
 - `(b)` 만 만족하면 → 하드웨어는 돌지만 고전도 쉽게 함 (지금 `T = 0.5` 가 여기)
