@@ -58,6 +58,7 @@ data/processed/*.npy
 # Large target SPO files (>50MB), including the T1-T time-sweep snapshots
 results/*/targets_*.json
 results/*/time_sweep/targets_k*.json
+results/*/time_sweep/_partial/
 
 # Generated hardware circuits (regenerable via scripts/01_build_hw_circuits.py)
 results/*/*.qasm

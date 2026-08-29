@@ -706,6 +706,48 @@ def test_16_adaptive_truncation_fires():
     print("  ✅ PASSED\n")
 
 
+def test_17_packed_engine_matches_string_engine():
+    """Bit-packed (x,z) Pauli engine must match the string-dict oracle exactly.
+
+    docs/issues/03-engine-performance.md: bitpacking is required before 7x7,
+    and the string engine stays the validated oracle at 4x4 for exactly this
+    comparison. Checks random small circuits term-for-term (not just close --
+    these are two representations of the same deterministic computation).
+    """
+    print("=" * 60)
+    print("TEST 17: bit-packed engine matches the string-dict oracle")
+    print("=" * 60)
+    from bppps.propagation_packed import self_check as packed_self_check
+
+    for seed in range(5):
+        packed_self_check(seed=seed, n=4, n_gates=80)
+    for seed in range(3):
+        packed_self_check(seed=seed, n=6, n_gates=150)
+    print("  ✅ PASSED\n")
+
+
+def test_18_numba_engine_matches_string_engine():
+    """Numba-JIT packed engine must match the string-dict oracle exactly.
+
+    Same bit algebra as propagation_packed (TEST 17), but terms live in a
+    numba.typed.Dict[uint64,float64] with the per-gate loop JIT-compiled --
+    plain-Python (x,z)-tuple keys turned out slower than strings (every
+    CPython int/tuple carries ~28B of object overhead regardless of the
+    logical bit width), so this is the version actually worth benchmarking
+    for a production path. See docs/issues/03-engine-performance.md.
+    """
+    print("=" * 60)
+    print("TEST 18: numba-JIT engine matches the string-dict oracle")
+    print("=" * 60)
+    from bppps.propagation_numba import self_check as numba_self_check
+
+    for seed in range(5):
+        numba_self_check(seed=seed, n=4, n_gates=80)
+    for seed in range(3):
+        numba_self_check(seed=seed, n=6, n_gates=150)
+    print("  ✅ PASSED\n")
+
+
 if __name__ == '__main__':
     test_1_ferromagnetic()
     test_2_pauli_op_consistency()
@@ -723,7 +765,9 @@ if __name__ == '__main__':
     test_14_trotter_sequence_reversal_invariant()
     test_15_plus_initial_state()
     test_16_adaptive_truncation_fires()
+    test_17_packed_engine_matches_string_engine()
+    test_18_numba_engine_matches_string_engine()
 
     print("=" * 60)
-    print("ALL 16 TESTS PASSED ✅")
+    print("ALL 18 TESTS PASSED ✅")
     print("=" * 60)
