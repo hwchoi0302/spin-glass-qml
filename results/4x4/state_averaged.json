@@ -1,0 +1,61 @@
+{
+  "T": 0.5,
+  "n_states": 24,
+  "seed": 11,
+  "rows": [
+    {
+      "label": "BP-PPS HVA L=3",
+      "n_2q": 72,
+      "infid_zero": 0.0008176080972652766,
+      "infid_avg": 0.0008804745707754469
+    },
+    {
+      "label": "BP-PPS HVA L=2",
+      "n_2q": 48,
+      "infid_zero": 0.02202710191176349,
+      "infid_avg": 0.026758654391089265
+    },
+    {
+      "label": "grouped S2, 2 steps",
+      "n_2q": 48,
+      "infid_zero": 0.010173514954911589,
+      "infid_avg": 0.013499400801643469
+    },
+    {
+      "label": "grouped S2, 3 steps",
+      "n_2q": 72,
+      "infid_zero": 0.0019056878667385035,
+      "infid_avg": 0.0025205856897371204
+    },
+    {
+      "label": "grouped S2, 4 steps",
+      "n_2q": 96,
+      "infid_zero": 0.0005919348277271252,
+      "infid_avg": 0.0007818189778144857
+    },
+    {
+      "label": "grouped S2, 6 steps",
+      "n_2q": 144,
+      "infid_zero": 0.00011539534573823396,
+      "infid_avg": 0.00015224500103361294
+    },
+    {
+      "label": "grouped S2, 8 steps",
+      "n_2q": 192,
+      "infid_zero": 3.6344016916878275e-05,
+      "infid_avg": 4.793069090425206e-05
+    },
+    {
+      "label": "grouped S2, 12 steps",
+      "n_2q": 288,
+      "infid_zero": 7.15549286234296e-06,
+      "infid_avg": 9.43395794239521e-06
+    },
+    {
+      "label": "grouped S2, 16 steps",
+      "n_2q": 384,
+      "infid_zero": 2.2614384891372907e-06,
+      "infid_avg": 2.9812234153547834e-06
+    }
+  ]
+}
