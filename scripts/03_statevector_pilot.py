@@ -314,6 +314,15 @@ def time_evolution_pilot(model, ed, plan_for, patterns, T_list, layer_list,
             fid = 1.0 - fidelity_cost_grad(x, plan, psi0, psi_exact, n, patterns)[0]
             by_T[str(L)] = {
                 'fidelity': fid, 'n_params': len(plan), 'time_s': elapsed,
+                # Keep the angles. Without them the circuit cannot be scored on
+                # anything except the single state it was fitted to, and that
+                # turned out to matter enormously: at T=0.5, L=3 this optimum
+                # reaches infidelity 1.4e-5 on |0...0> and 4.3e-1 averaged over
+                # random product states. It is an interpolant of one state, not
+                # an approximation of exp(-iHT), so it is not a valid ceiling
+                # for BP-PPS, which approximates the operator. See
+                # docs/issues/01-scale-plan.md.
+                'params': [float(v) for v in x],
             }
             print(f"  {T:5.1f} {L:3d} {fid:12.8f} {len(plan):9d} {elapsed:8.1f}")
             with open(os.path.join(os.path.dirname(out['_path']), 'statevector_pilot.json'), 'w') as f:
