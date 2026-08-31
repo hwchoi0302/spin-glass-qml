@@ -462,7 +462,27 @@ if __name__ == '__main__':
                          "2 = ground-state layer sweep only (BP-PPS training, hours). "
                          "Part 1 depends on trained_params.json, so it must be re-run "
                          "whenever the time-evolution training is re-run.")
+    # Part 2's cost is not "hours" at the default truncation schedule. The
+    # standalone L=5 ground-state run of 2026-08-31 spent 19.9 h on Adam alone
+    # and was still inside L-BFGS-B at 41 h, because delta tightened to 1e-7 and
+    # each evaluation became enormous. The sweep runs that same training five
+    # times over, so it needs to be bounded rather than launched and hoped for.
+    ap.add_argument('--layers', type=int, nargs='+', default=None,
+                    help=f'Layer counts to sweep (default {LAYER_SWEEP})')
+    ap.add_argument('--set', dest='overrides', action='append', default=[],
+                    metavar='section.key=value',
+                    help='Config override, e.g. truncation.min_delta=1e-6 to stop '
+                         'the adaptive schedule before it reaches the regime that '
+                         'made the L=5 run unbounded.')
     args = ap.parse_args()
+
+    if args.overrides:
+        from config import apply_overrides
+        CONFIG = apply_overrides(CONFIG, args.overrides)
+        print(f"  config overrides: {args.overrides}")
+    if args.layers:
+        LAYER_SWEEP = args.layers
+        print(f"  layer sweep: {LAYER_SWEEP}")
 
     t_start = time.time()
 

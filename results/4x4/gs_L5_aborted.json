@@ -1,0 +1,128 @@
+{
+  "n_layers": 5,
+  "initial_state": "plus",
+  "mode": "ground_state",
+  "status": "ABORTED during L-BFGS-B refinement after 41 h; Adam completed",
+  "params": null,
+  "params_note": "run_pipeline.py writes gs_trained_params.json only after both optimisation stages, so stopping inside L-BFGS-B discarded the 19.9 h of Adam output. The energies below are recovered from the run log and are a valid record, but the angles that produced them are gone: this result cannot be deployed, plotted as a circuit, or refined further without a re-run.",
+  "adam_epochs_completed": 100,
+  "adam_wall_s": 71463.3,
+  "lbfgsb_wall_s_before_abort": 75600,
+  "final_adam_loss": -22.192613,
+  "ed_ground_energy": -22.47219774686095,
+  "gap_to_E0": 0.27958474686094803,
+  "statevector_ceiling_L5": -22.430332172488765,
+  "gap_to_ceiling": 0.23771917248876306,
+  "reference_L3_production": {
+    "energy": -21.999324953610053,
+    "gap_to_E0": 0.4728727932508967
+  },
+  "delta_tightenings": [
+    {
+      "epoch": 12,
+      "delta": 0.0001
+    },
+    {
+      "epoch": 26,
+      "delta": 1e-05
+    },
+    {
+      "epoch": 37,
+      "delta": 1e-06
+    },
+    {
+      "epoch": 93,
+      "delta": 1e-07
+    }
+  ],
+  "epoch_log": [
+    {
+      "epoch": 1,
+      "loss": -15.290587,
+      "grad_norm": 8.094,
+      "eps_trunc": 0.135,
+      "delta": 0.001,
+      "time_s": 0.5
+    },
+    {
+      "epoch": 10,
+      "loss": -20.652195,
+      "grad_norm": 1.5479,
+      "eps_trunc": 0.12,
+      "delta": 0.001,
+      "time_s": 2.9
+    },
+    {
+      "epoch": 20,
+      "loss": -20.882198,
+      "grad_norm": 1.5814,
+      "eps_trunc": 0.0351,
+      "delta": 0.0001,
+      "time_s": 68.4
+    },
+    {
+      "epoch": 30,
+      "loss": -21.321327,
+      "grad_norm": 1.1104,
+      "eps_trunc": 0.0166,
+      "delta": 1e-05,
+      "time_s": 686.0
+    },
+    {
+      "epoch": 40,
+      "loss": -21.571099,
+      "grad_norm": 0.6859,
+      "eps_trunc": 0.00341,
+      "delta": 1e-06,
+      "time_s": 4005.8
+    },
+    {
+      "epoch": 50,
+      "loss": -21.784208,
+      "grad_norm": 0.4666,
+      "eps_trunc": 0.0041,
+      "delta": 1e-06,
+      "time_s": 13569.7
+    },
+    {
+      "epoch": 60,
+      "loss": -21.967575,
+      "grad_norm": 0.3402,
+      "eps_trunc": 0.00415,
+      "delta": 1e-06,
+      "time_s": 24267.3
+    },
+    {
+      "epoch": 70,
+      "loss": -22.057518,
+      "grad_norm": 0.249,
+      "eps_trunc": 0.00422,
+      "delta": 1e-06,
+      "time_s": 34975.5
+    },
+    {
+      "epoch": 80,
+      "loss": -22.12288,
+      "grad_norm": 0.1543,
+      "eps_trunc": 0.00389,
+      "delta": 1e-06,
+      "time_s": 44957.8
+    },
+    {
+      "epoch": 90,
+      "loss": -22.162251,
+      "grad_norm": 0.1193,
+      "eps_trunc": 0.00361,
+      "delta": 1e-06,
+      "time_s": 53320.8
+    },
+    {
+      "epoch": 100,
+      "loss": -22.192613,
+      "grad_norm": 0.0919,
+      "eps_trunc": 0.000606,
+      "delta": 1e-07,
+      "time_s": 71463.3
+    }
+  ]
+}
