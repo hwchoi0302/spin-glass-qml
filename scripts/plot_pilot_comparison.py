@@ -39,6 +39,26 @@ N_BONDS = 24  # 4x4 lattice, fixed
 
 
 def plot_goal1():
+    """WITHDRAWN 2026-08-31 -- do not re-enable without reading this.
+
+    This figure plotted the statevector pilot's "ceiling" against Trotter on a
+    common 2Q axis, and the 290x/63x/27x advantage read off it is retracted.
+    The pilot optimises fidelity for |0...0> alone, and once its angles were
+    saved and re-scored on random product states the L=3 optimum came out at
+    0.43 average infidelity -- an interpolant of one state, not an
+    approximation of exp(-iHT). It is not an upper bound on BP-PPS, which
+    approximates the operator, so the two curves were never comparable.
+    See docs/issues/01-scale-plan.md, "pilot ceiling 은 시간진화 회로가
+    아닙니다", and scripts/03g_state_averaged.py for the metric that replaces
+    it. Goal 1 still holds on the state-averaged metric, but it has to be
+    redrawn there; plot_goal3 below is unaffected because energy is not a
+    single-state quantity.
+    """
+    print("plot_goal1: WITHDRAWN -- the pilot ceiling is not a time-evolution "
+          "circuit (0.43 avg infidelity). Redraw on the state-averaged metric; "
+          "see this function's docstring.")
+    return None
+
     te = pilot['time_evolution']
     tr = pilot.get('trotter', {})
     T_list = sorted(te.keys(), key=float)
