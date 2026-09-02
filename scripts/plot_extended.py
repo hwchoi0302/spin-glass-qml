@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
 """4×4 Spin Glass — Extended Visualization.
 
-1. HVA composition fidelity at t = 0.5k (k=1..5) + log-scale infidelity
+1. HVA composition fidelity at t = 0.5k (k=1..5) -> composition_fidelity.json
 2. Low-energy state preparation: energy vs layers (BP-PPS Fig. 4(a) style)
+
+Part 1 no longer draws a figure. It used to emit 09_composition_fidelity.png,
+deleted on 2026-09-03: panels (a) and (b) were 02_fidelity_comparison.png's two
+panels redrawn from the same JSON, and panel (c) plotted infidelity against
+composition_fidelity.json's `*_depth` fields -- qiskit's unsorted qc.depth() --
+and annotated the result with the 4.7x "compression" that the depth audit
+(scripts/03f_depth_audit.py) withdrew. Part 1 still writes the JSON, which
+02 and 06 both consume.
 """
 
 import sys
@@ -229,80 +237,6 @@ def train_ground_state_multi_layers():
 # ============================================================================
 # Plotting
 # ============================================================================
-def plot_composition_fidelity(comp_data):
-    """Plot composition fidelity with log-scale infidelity."""
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5.5))
-
-    t = comp_data['time_pts']
-    hva_fid = comp_data['hva_fid']
-    t01_fid = comp_data['trot01_fid']
-    t02_fid = comp_data['trot02_fid']
-    hva_d = comp_data['hva_depth']
-    t01_d = comp_data['trot01_depth']
-    t02_d = comp_data['trot02_depth']
-
-    # --- (a) Infidelity (log scale) vs time ---
-    ax = axes[0]
-    ax.semilogy(t, [1-f for f in t01_fid], 's-', color='#2196F3', markersize=8, lw=2,
-               label=r'Trotter $S_2$ ($\Delta t$=0.1)')
-    ax.semilogy(t, [1-f for f in t02_fid], '^-', color='#FF9800', markersize=8, lw=2,
-               label=r'Trotter $S_2$ ($\Delta t$=0.2)')
-    ax.semilogy(t, [1-f for f in hva_fid], 'D-', color='#E91E63', markersize=8, lw=2,
-               label='HVA 3-layer (composed)')
-    ax.set_xlabel('Time $t$')
-    ax.set_ylabel('Infidelity $1 - F$')
-    ax.set_title('(a) Infidelity vs Time (log scale)')
-    ax.legend(fontsize=10)
-    ax.grid(True, alpha=0.3, which='both')
-    ax.set_xticks(t)
-
-    # --- (b) Fidelity vs time ---
-    ax = axes[1]
-    ax.plot(t, t01_fid, 's-', color='#2196F3', markersize=8, lw=2,
-           label=r'Trotter $S_2$ ($\Delta t$=0.1)')
-    ax.plot(t, t02_fid, '^-', color='#FF9800', markersize=8, lw=2,
-           label=r'Trotter $S_2$ ($\Delta t$=0.2)')
-    ax.plot(t, hva_fid, 'D-', color='#E91E63', markersize=8, lw=2,
-           label='HVA 3-layer (composed)')
-    ax.axhline(y=1.0, color='k', ls='--', lw=1, alpha=0.5)
-    ax.set_xlabel('Time $t$')
-    ax.set_ylabel('Fidelity $F$')
-    ax.set_title('(b) Fidelity vs Time')
-    ax.legend(fontsize=10, loc='lower left')
-    ax.grid(True, alpha=0.3)
-    ax.set_xticks(t)
-
-    # --- (c) Infidelity vs circuit depth ---
-    ax = axes[2]
-    ax.semilogy(t01_d, [1-f for f in t01_fid], 's-', color='#2196F3', markersize=8, lw=2,
-               label=r'Trotter $S_2$ ($\Delta t$=0.1)')
-    ax.semilogy(t02_d, [1-f for f in t02_fid], '^-', color='#FF9800', markersize=8, lw=2,
-               label=r'Trotter $S_2$ ($\Delta t$=0.2)')
-    ax.semilogy(hva_d, [1-f for f in hva_fid], 'D-', color='#E91E63', markersize=8, lw=2,
-               label='HVA 3-layer (composed)')
-    ax.set_xlabel('Circuit Depth')
-    ax.set_ylabel('Infidelity $1 - F$')
-    ax.set_title('(c) Infidelity vs Circuit Depth')
-    ax.legend(fontsize=10)
-    ax.grid(True, alpha=0.3, which='both')
-
-    # Annotate compression ratios
-    for i, ti in enumerate(t):
-        if t01_d[i] > 0 and hva_d[i] > 0:
-            ratio = t01_d[i] / hva_d[i]
-            if ratio > 1.5:
-                ax.annotate(f'{ratio:.1f}×',
-                           xy=(hva_d[i], 1 - hva_fid[i]),
-                           xytext=(hva_d[i] + 15, (1-hva_fid[i]) * 3),
-                           fontsize=9, color='#E91E63',
-                           arrowprops=dict(arrowstyle='->', color='#E91E63', lw=0.8))
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(PLOT_DIR, '09_composition_fidelity.png'))
-    plt.close()
-    print("✅ 09_composition_fidelity.png")
-
-
 def plot_gs_energy_vs_layers(gs_results, E0):
     """BP-PPS Fig. 4(a) style: energy vs layers + training curves."""
     fig, axes = plt.subplots(1, 3, figsize=(18, 5.5))
@@ -494,8 +428,6 @@ if __name__ == '__main__':
     with open(comp_path, 'w') as f:
         json.dump(comp_data, f, indent=2)
     print(f"\nSaved: {comp_path}")
-
-    plot_composition_fidelity(comp_data)
 
     if args.part == '1':
         elapsed = time.time() - t_start

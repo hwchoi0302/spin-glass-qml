@@ -1742,11 +1742,14 @@ grouped S4  n스텝    2Q = 120n   깊이 = 25n + 1   2Q 깊이 = 20n
         Trotter (구조가 다름 — 목표 3의 실제 주장이 여기 걸림), (2) QAOA 가
         훈련은 더 쉬운가 (파라미터가 40배 적어 100큐비트 BP-PPS 훈련 비용이
         훨씬 쌈 — 표현력에서 져도 훈련 가능성에서 이길 수 있음)** 입니다
-- [~] 목표 3 그림을 "에너지 vs 2Q 게이트 수" 로 다시 그리기 (`scripts/plot_pilot_comparison.py`
-      신규, `goal3_energy_vs_2q.png`) — ceiling(L=1..8, 정확)과 실제 BP-PPS
-      L=3 점(수정 후, ceiling과 거의 일치) 확보. **Trotter화 단열 회로는 아직
-      구현 안 됨** — 지금 그림은 우리 자신의 층수 스윕만 있고, 경쟁 모델과의
-      비교는 그 회로를 짜야 완성됩니다
+- [~] 목표 3 그림을 "에너지 vs 2Q 게이트 수" 로 다시 그리기 — ceiling(L=1..8,
+      정확)과 실제 BP-PPS L=3 점(수정 후, ceiling과 거의 일치) 확보.
+      **2026-09-03: `goal3_energy_vs_2q.png` 는 삭제했습니다** —
+      `report_goal3_layers.png` 패널 (a) 와 완전히 같은 그림이었습니다. 이제
+      `scripts/plot_report_4x4.py::fig_goal3` 하나가 그리고, 중단된 L=5 점
+      (격차 0.2796, L=5 ceiling 0.0419 의 **6.7배**) 도 함께 표시합니다.
+      **Trotter화 단열 회로는 아직 구현 안 됨** — 지금 그림은 우리 자신의
+      층수 스윕만 있고, 경쟁 모델과의 비교는 그 회로를 짜야 완성됩니다
 - [x] 목표 1 그림 "HVA ceiling vs Trotter, 2Q 게이트 수 매칭" (`scripts/03b_trotter_baseline.py`,
       `goal1_hva_vs_trotter.png`, 2026-08-30) — 위 "정정" 절 참고, 모든 T에서
       HVA가 Trotter보다 깊이당 우위

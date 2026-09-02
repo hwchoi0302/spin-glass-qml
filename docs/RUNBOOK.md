@@ -238,13 +238,17 @@ python scripts/run_pipeline.py --stages 2 3 4
 ### 2-5. 그림과 회로
 
 ```bash
-python scripts/plot_results.py        # 그림 1~8, 빠름
-python scripts/plot_extended.py       # 그림 9~11, layer 1~5 재훈련 포함 (3~6시간)
+python scripts/plot_results.py        # 그림 1, 2, 4, 6 (약 35초 — Trotter 를 직접 재평가)
+python scripts/plot_extended.py       # part 1 은 composition JSON, part 2 는 layer 1~5 재훈련 (3~6시간)
 python scripts/01_build_hw_circuits.py --repeats 1 2 3 4 5
 python scripts/01_build_hw_circuits.py --repeats 1 2 3 4 5 --basis X
 ```
 
-`plot_extended.py` 는 오래 걸리므로 시간이 없으면 뒤로 미뤄도 됩니다.
+`plot_extended.py` 의 part 2 는 오래 걸리므로 시간이 없으면 뒤로 미뤄도 됩니다.
+part 1 은 그림을 그리지 않고 `composition_fidelity.json` 만 씁니다 —
+`09_composition_fidelity.png` 는 2026-09-03 에 삭제됐습니다. 그 JSON 은
+`plot_results.py` 의 그림 2·6 이 읽으므로, 시간진화를 재훈련하면
+**part 1 → plot_results.py** 순서로 돌리세요.
 
 ---
 

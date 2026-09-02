@@ -3,23 +3,28 @@
 
 Generates publication-quality plots:
   1. Lattice diagram with J couplings and h fields
-  2. Time-evolution fidelity comparison (ED, Trotter, HVA)
-  3. Observable comparison (⟨X_i⟩, ⟨Z_i⟩) at t=0.5
+  2. Time-evolution fidelity comparison (ED, Trotter S2/S4, HVA)
   4. Training loss curves
-  5. Ground state comparison
-  6. Circuit depth comparison
+  6. Circuit cost (depth, 2Q count) and the accuracy it buys
+
+Figures 3, 5, 7 and 8 were removed on 2026-09-03. 3 (per-site <X>/<Z> at
+t=0.5), 5 (ground-state observables) and 7 (per-qubit loss heatmap) carried no
+finding the scalar summaries do not already state, and 8 was a montage of the
+other panels. Figure 9 went at the same time, from plot_extended.py: its (a)
+and (b) were figure 2's two panels redrawn, and its (c) plotted infidelity
+against the withdrawn qiskit depth numbers, annotated with the 4.7x
+"compression" that docs/issues/05-writing.md forbids quoting.
 """
 
 import sys
 import os
 import json
+import math
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from matplotlib.colors import LinearSegmentedColormap
-import matplotlib.gridspec as gridspec
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(PROJECT_ROOT, 'src'))
@@ -35,8 +40,6 @@ with open(os.path.join(RESULTS_DIR, 'model_config.json')) as f:
     config = json.load(f)
 with open(os.path.join(RESULTS_DIR, 'ed_results.json')) as f:
     ed = json.load(f)
-with open(os.path.join(RESULTS_DIR, 'trotter_results.json')) as f:
-    trotter = json.load(f)
 with open(os.path.join(RESULTS_DIR, 'trained_params.json')) as f:
     te_data = json.load(f)
 with open(os.path.join(RESULTS_DIR, 'gs_trained_params.json')) as f:
@@ -74,6 +77,117 @@ LX, LY = config['Lx'], config['Ly']
 J = config['J']
 bonds = config['bonds']
 h = config['h']
+
+
+# ============================================================================
+# Grouped Trotter reference circuits
+# ============================================================================
+# Every Trotter number in this file is produced here, by the repository's own
+# grouped builder, and none of them is read out of trotter_results.json any
+# more. That file holds qiskit's generic Suzuki synthesis, which symmetrises
+# term by term even though all the ZZ terms commute, so it emits 2*n_bonds RZZ
+# per step where the grouped circuit emits n_bonds. Checked on 2026-09-03 at
+# t=0.5, dt=0.1, 5 steps:
+#
+#     qiskit   F = 0.99983542   240 2Q
+#     grouped  F = 0.99975960   120 2Q
+#
+# A hair more fidelity for exactly twice the gates is strictly worse per gate,
+# so the qiskit circuit is a bad compilation of the formula rather than a
+# better baseline. Figure 6 already counted the grouped way; figure 2 did not,
+# and the two figures disagreed about what "Trotter" meant.
+#
+# `dt` is an UPPER BOUND on the step size, never a divisor of t. num_steps
+# rounds ceil(t/dt) and the step then shrinks to t/steps so the circuit lands
+# on t exactly (see TrotterCircuit.num_steps). Consequences worth knowing
+# before reading either figure:
+#
+#     t=0.5, "dt=0.2"  ->  3 steps of 0.1667, not 2 steps of 0.2
+#     t=0.3, "dt=0.2"  ->  2 steps of 0.1500
+#     t=0.1, "dt=0.2"  ->  1 step of 0.1, i.e. the same circuit as "dt=0.1"
+#
+# So the labels here read "dt <= x" and every curve carries its step count.
+
+# One S4 step is five S2 sub-steps, S4(dt) = S2(p dt)^2 S2((1-4p) dt) S2(p dt)^2.
+_S2_SUBSTEPS = {2: 1, 4: 5}
+
+_tv_ctx = None
+
+
+def _trotter_ctx():
+    """Model, exact solver and |0...0> for the grouped Trotter evaluations."""
+    global _tv_ctx
+    if _tv_ctx is None:
+        from qiskit.quantum_info import Statevector
+        from hamiltonians import SpinGlass2D
+        from classical_bench import ExactDiag
+
+        model = SpinGlass2D.from_config_dict(config)
+        n = model.num_qubits
+        _tv_ctx = {
+            'model': model,
+            'n': n,
+            'n_bonds': model.num_bonds,
+            'ed': ExactDiag(model.build_sparse_matrix(), n),
+            'psi0': np.array(Statevector.from_label('0' * n), dtype=complex),
+            'substep_bonds': {int(k): [tuple(x) for x in v]
+                              for k, v in config['substep_bonds'].items()},
+            'J': np.array(model.J),
+            'h': model.h,
+        }
+    return _tv_ctx
+
+
+def trotter_steps(t, dt):
+    """Steps used to reach t with step size at most dt (rounds up)."""
+    return max(1, math.ceil(t / dt - 1e-12))
+
+
+def grouped_cost(n_steps, order, n_bonds):
+    """(depth, n_2q) of a grouped Suzuki circuit, counted analytically.
+
+    Counted the same way the HVA is counted: from the 4-colour schedule, before
+    any transpiler sees the circuit. One S2 sub-step is
+    RX(tau/2) . [4 RZZ colour layers] . RX(tau/2), and the trailing RX of one
+    sub-step fuses with the leading RX of the next, so m sub-steps cost 5m+1
+    layers and n_bonds*m two-qubit gates.
+    """
+    sub = _S2_SUBSTEPS[order] * n_steps
+    return 5 * sub + 1, n_bonds * sub
+
+
+_fid_cache = {}
+
+
+def grouped_fidelity(t, n_steps, order):
+    """Statevector fidelity of the grouped Suzuki circuit against exact e^{-iHt}.
+
+    Cached: figures 2 and 6 ask for overlapping (t, steps, order) triples and
+    the S4 circuits run to a few thousand gates.
+    """
+    key = (round(t, 12), n_steps, order)
+    if key in _fid_cache:
+        return _fid_cache[key]
+
+    from qiskit import QuantumCircuit
+    from qiskit.quantum_info import Statevector
+    from bppps.propagation import build_trotter_gate_sequence
+
+    c = _trotter_ctx()
+    seq = build_trotter_gate_sequence(c['n'], c['substep_bonds'], c['J'], c['h'],
+                                      dt=t / n_steps, n_steps=n_steps, order=order)
+    qc = QuantumCircuit(c['n'])
+    for g in seq:
+        if g[0] == 'rx':
+            qc.rx(g[2], g[1])
+        else:
+            qc.rzz(g[3], g[1], g[2])
+    psi = np.array(Statevector(c['psi0']).evolve(qc))
+    exact = c['ed'].time_evolve(c['psi0'].copy(), t)
+    f = float(np.abs(np.vdot(exact, psi)) ** 2)
+    _fid_cache[key] = f
+    return f
+
 
 # ============================================================================
 # Figure 1: Lattice with J couplings and h fields
@@ -142,192 +256,114 @@ def plot_lattice():
 # Figure 2: Time-evolution Fidelity comparison
 # ============================================================================
 def plot_fidelity():
-    """Compare fidelity: ED (exact), Trotter dt=0.1, Trotter dt=0.2, HVA.
+    """Fidelity vs time for the HVA and three grouped Trotter baselines.
 
-    The HVA is trained at a single chunk Delta t = 0.5; longer times are reached
-    by composing that chunk k times, U(theta; 0.5)^k. Those composed fidelities
-    live in composition_fidelity.json (plot_extended.py --part 1), which also
-    re-evaluates both Trotter curves on the same extended grid, so all three
-    curves span t = 0.5 ... 2.5 here rather than stopping at t = 1.0.
+    The HVA is trained on a single chunk Delta t = 0.5; longer times are reached
+    by composing that chunk k times, U(theta; 0.5)^k, and those composed
+    fidelities live in composition_fidelity.json (plot_extended.py --part 1).
+    So the HVA only exists on t = 0.5 ... 2.5, and every curve here is drawn on
+    that same grid. The figure used to put the Trotter curves on a second,
+    shorter grid (t = 0.1 ... 1.0) as well, which made the left half of the
+    plot a comparison against nothing.
+
+    Trotter is evaluated by grouped_fidelity(), not read from
+    trotter_results.json -- see the "Grouped Trotter reference circuits" block
+    for why the two differ by a factor of two in gate count.
+
+    S4 is on the figure because it is the honest ceiling of the Trotter family,
+    but it is close enough to exact here (1 - F ~ 1e-7) that a bare curve reads
+    as "S4 wins". It does not: it costs five S2 sub-steps per step. The 2Q
+    count of every curve is therefore annotated at its right-hand end, and the
+    iso-cost comparison lives in figure 6(c).
     """
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5))
 
-    time_pts = [0.1, 0.2, 0.3, 0.5, 1.0]
-    # dt=0.2 has no entry for t=0.1 (rounds to 0 Trotter steps, so it was skipped).
-    time_pts_02 = [t for t in time_pts if str(t) in trotter['0.2']]
+    n_bonds = _trotter_ctx()['n_bonds']
+    n_layers = config.get('n_layers', 3)
 
-    # Trotter fidelities on the short grid.
-    t01 = {t: trotter['0.1'][str(t)]['fidelity'] for t in time_pts}
-    t02 = {t: trotter['0.2'][str(t)]['fidelity'] for t in time_pts_02}
-
-    # HVA: the trained chunk, plus its k-fold compositions when available.
-    hva = {0.5: val['time_evolution']['fidelity']}
     if comp is not None:
-        for t, f in zip(comp['time_pts'], comp['hva_fid']):
-            hva[t] = f
-        # Same extended grid for Trotter, so the comparison stays like-for-like.
-        for t, f in zip(comp['time_pts'], comp['trot01_fid']):
-            t01[t] = f
-        for t, f in zip(comp['time_pts'], comp['trot02_fid']):
-            t02[t] = f
+        time_pts = list(comp['time_pts'])
+        hva_fid = list(comp['hva_fid'])
+        ks = list(comp['k_values'])
+    else:
+        time_pts = [0.5]
+        hva_fid = [val['time_evolution']['fidelity']]
+        ks = [1]
+    hva_2q = [n_bonds * n_layers * k for k in ks]
 
-    def xy(d):
-        ts = sorted(d)
-        return ts, [d[t] for t in ts]
+    # (label, colour, marker, fidelities, 2Q counts)
+    series = [(r'HVA %d-layer, $U(\theta;0.5)^k$' % n_layers,
+               '#E91E63', 'D', hva_fid, hva_2q)]
+    for order, dt, color, mk in ((2, 0.1, '#2196F3', 's'),
+                                 (2, 0.2, '#FF9800', '^'),
+                                 (4, 0.2, '#4CAF50', 'v')):
+        f, q = [], []
+        for t in time_pts:
+            steps = trotter_steps(t, dt)
+            f.append(grouped_fidelity(t, steps, order))
+            q.append(grouped_cost(steps, order, n_bonds)[1])
+        series.append((r'Trotter $S_%d$ grouped ($\Delta t \leq %.1f$)' % (order, dt),
+                       color, mk, f, q))
 
-    x01, y01 = xy(t01)
-    x02, y02 = xy(t02)
-    xh, yh = xy(hva)
-    hva_fid_05 = hva[0.5]
+    # The 2Q cost rides in the legend rather than at the end of each curve. The
+    # S4 line sits at 1 - F ~ 1e-7 and the HVA and S2 lines end within a factor
+    # of two of each other, so end-of-line labels either collide or float far
+    # from the curve they belong to; and the cost is the first thing to read
+    # about the S4 curve, not a footnote to it.
+    cost_lab = [f'{lab}  [{q[-1]} 2Q]' for lab, _, _, _, q in series]
 
-    # --- Panel (a): Fidelity vs time ---
-    ax1.plot([min(x01), max(x01)], [1.0, 1.0], 'k--', lw=1.5, alpha=0.5,
-             label='ED (exact)')
-    ax1.plot(x01, y01, 's-', color='#2196F3', markersize=7, lw=2,
-             label=r'Trotter $S_2$ ($\Delta t=0.1$)')
-    ax1.plot(x02, y02, '^-', color='#FF9800', markersize=7, lw=2,
-             label=r'Trotter $S_2$ ($\Delta t=0.2$)')
-    ax1.plot(xh, yh, 'D-', color='#E91E63', markersize=8, lw=2, zorder=5,
-             label=r'HVA 3-layer, $U(\theta;0.5)^k$')
-    ax1.plot(0.5, hva_fid_05, 'D', color='#E91E63', markersize=13,
+    # --- Panel (a): fidelity vs time ---
+    for (lab, color, mk, f, _) in series:
+        ax1.plot(time_pts, f, mk + '-', color=color, markersize=8, lw=2,
+                 zorder=5 if mk == 'D' else 3, label=lab)
+    ax1.plot(time_pts[0], hva_fid[0], 'D', color='#E91E63', markersize=13,
              markeredgecolor='black', markeredgewidth=1.2, zorder=6,
              label='HVA trained chunk ($k=1$)')
+    # Last, and on top: S4 is flat at 1.0 and would otherwise bury this line.
+    ax1.plot([min(time_pts), max(time_pts)], [1.0, 1.0], 'k--', lw=1.4,
+             alpha=0.8, zorder=8, label='ED (exact)')
 
     ax1.set_xlabel('Time $t$')
     ax1.set_ylabel('Fidelity $|\\langle\\psi_{\\rm approx}|\\psi_{\\rm exact}\\rangle|^2$')
-    ax1.set_title('(a) State Fidelity vs Time')
+    ax1.set_title('(a) State fidelity vs time')
     ax1.legend(fontsize=9, loc='lower left')
-    # Data-driven: every curve now sits close to 1, so a fixed floor would waste
-    # most of the axis. (It used to need one because the dt=0.2 curve dipped to
-    # 0.80 on a time-rounding artefact - see TrotterCircuit.num_steps.)
-    lo = min(min(y01), min(y02), min(yh))
+    lo = min(min(f) for _, _, _, f, _ in series)
     ax1.set_ylim(lo - 0.15 * (1 - lo), 1 + 0.03 * (1 - lo))
+    ax1.set_xticks(time_pts)
     ax1.grid(True, alpha=0.3)
 
-    # --- Panel (b): 1 - Fidelity (infidelity, log scale) ---
-    ax2.semilogy(x01, [1 - f for f in y01], 's-', color='#2196F3',
-                 markersize=7, lw=2, label=r'Trotter $S_2$ ($\Delta t=0.1$)')
-    ax2.semilogy(x02, [1 - f for f in y02], '^-', color='#FF9800',
-                 markersize=7, lw=2, label=r'Trotter $S_2$ ($\Delta t=0.2$)')
-    ax2.semilogy(xh, [1 - f for f in yh], 'D-', color='#E91E63',
-                 markersize=8, lw=2, zorder=5, label=r'HVA, $U(\theta;0.5)^k$')
-    ax2.annotate(f'{1 - hva_fid_05:.2e}', xy=(0.5, 1 - hva_fid_05),
-                 xytext=(0.75, (1 - hva_fid_05) * 0.25), fontsize=10,
-                 arrowprops=dict(arrowstyle='->', color='#E91E63'))
+    # --- Panel (b): infidelity, log scale, with the cost of each curve ---
+    for (lab, color, mk, f, q), cl in zip(series, cost_lab):
+        ax2.semilogy(time_pts, [1 - v for v in f], mk + '-', color=color,
+                     markersize=8, lw=2, zorder=5 if mk == 'D' else 3, label=cl)
+    ax2.annotate(f'trained chunk: {1 - hva_fid[0]:.2e}',
+                 xy=(time_pts[0], 1 - hva_fid[0]), xytext=(14, -22),
+                 textcoords='offset points', fontsize=9, color='#E91E63',
+                 arrowprops=dict(arrowstyle='->', color='#E91E63', lw=1))
 
     ax2.set_xlabel('Time $t$')
     ax2.set_ylabel('Infidelity $1 - F$')
-    ax2.set_title('(b) Infidelity (log scale)')
-    ax2.legend(fontsize=9)
+    ax2.set_title('(b) Infidelity (log scale); brackets give the 2Q cost at $t$=%.1f'
+                  % time_pts[-1])
+    ax2.set_xticks(time_pts)
+    ax2.set_ylim(top=3e-2)
+    ax2.legend(fontsize=8.5, loc='center left')
     ax2.grid(True, alpha=0.3, which='both')
+
+    fig.text(0.5, -0.02,
+             r'$\Delta t$ is an upper bound, not a divisor of $t$: the circuit uses '
+             r'$\lceil t/\Delta t\rceil$ steps and shrinks the step to land on $t$ '
+             r'exactly. At $t$=0.5 the "$\Delta t\leq$0.2" circuit is 3 steps of 0.167.',
+             ha='center', fontsize=9, color='#555555')
 
     plt.tight_layout()
     plt.savefig(os.path.join(PLOT_DIR, '02_fidelity_comparison.png'))
     plt.close()
     print("✅ 02_fidelity_comparison.png")
-
-
-# ============================================================================
-# Figure 3: Observable comparison at t=0.5
-# ============================================================================
-def plot_observables():
-    """Compare ⟨X_i⟩ and ⟨Z_i⟩ at t=0.5: ED vs Trotter vs HVA."""
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-
-    qubits = list(range(16))
-    ed_x = ed['time_points']['0.5']['X']
-    ed_z = ed['time_points']['0.5']['Z']
-    trot01_x = trotter['0.1']['0.5']['X']
-    trot01_z = trotter['0.1']['0.5']['Z']
-    trot02_x = trotter['0.2']['0.5']['X']
-    trot02_z = trotter['0.2']['0.5']['Z']
-
-    # Compute HVA observables at t=0.5 using statevector
-    from hamiltonians import SpinGlass2D
-    from classical_bench import ExactDiag
-    from ansatz import HVA
-    from qiskit.quantum_info import Statevector
-
-    model = SpinGlass2D(Lx=4, Ly=4, h=1.0, coupling_type='ea_bimodal', seed=42)
-    hva_builder = HVA(num_qubits=16, bonds=model.bonds, n_layers=3, Lx=4, Ly=4)
-    te_params = np.array(te_data['params'])
-    hva_qc = hva_builder.build_circuit(te_params)
-    sv_init = Statevector.from_label('0' * 16)
-    psi_hva = np.array(sv_init.evolve(hva_qc))
-
-    H = model.build_sparse_matrix()
-    ed_obj = ExactDiag(H, 16)
-    obs_hva = ed_obj.local_observables(psi_hva, model.bonds)
-    hva_x = obs_hva['X']
-    hva_z = obs_hva['Z']
-
-    width = 0.2
-
-    # --- ⟨X_i⟩ ---
-    ax = axes[0, 0]
-    x_pos = np.arange(16)
-    ax.bar(x_pos - 1.5*width, ed_x, width, label='ED (exact)', color='#333333', alpha=0.8)
-    ax.bar(x_pos - 0.5*width, trot01_x, width, label=r'Trotter $\Delta t=0.1$', color='#2196F3', alpha=0.8)
-    ax.bar(x_pos + 0.5*width, trot02_x, width, label=r'Trotter $\Delta t=0.2$', color='#FF9800', alpha=0.8)
-    ax.bar(x_pos + 1.5*width, hva_x, width, label='HVA 3-layer', color='#E91E63', alpha=0.8)
-    ax.set_xlabel('Qubit $i$')
-    ax.set_ylabel(r'$\langle X_i \rangle$')
-    ax.set_title(r'(a) $\langle X_i \rangle$ at $t=0.5$')
-    ax.set_xticks(range(16))
-    ax.legend(fontsize=9, ncol=2)
-    ax.grid(True, alpha=0.2, axis='y')
-
-    # --- ⟨Z_i⟩ ---
-    ax = axes[0, 1]
-    ax.bar(x_pos - 1.5*width, ed_z, width, label='ED (exact)', color='#333333', alpha=0.8)
-    ax.bar(x_pos - 0.5*width, trot01_z, width, label=r'Trotter $\Delta t=0.1$', color='#2196F3', alpha=0.8)
-    ax.bar(x_pos + 0.5*width, trot02_z, width, label=r'Trotter $\Delta t=0.2$', color='#FF9800', alpha=0.8)
-    ax.bar(x_pos + 1.5*width, hva_z, width, label='HVA 3-layer', color='#E91E63', alpha=0.8)
-    ax.set_xlabel('Qubit $i$')
-    ax.set_ylabel(r'$\langle Z_i \rangle$')
-    ax.set_title(r'(b) $\langle Z_i \rangle$ at $t=0.5$')
-    ax.set_xticks(range(16))
-    ax.legend(fontsize=9, ncol=2)
-    ax.grid(True, alpha=0.2, axis='y')
-
-    # --- |ΔX_i| errors ---
-    ax = axes[1, 0]
-    err_trot01_x = np.abs(np.array(ed_x) - np.array(trot01_x))
-    err_trot02_x = np.abs(np.array(ed_x) - np.array(trot02_x))
-    err_hva_x = np.abs(np.array(ed_x) - hva_x)
-
-    ax.bar(x_pos - width, err_trot01_x, width, label=r'Trotter $\Delta t=0.1$', color='#2196F3', alpha=0.8)
-    ax.bar(x_pos, err_trot02_x, width, label=r'Trotter $\Delta t=0.2$', color='#FF9800', alpha=0.8)
-    ax.bar(x_pos + width, err_hva_x, width, label='HVA 3-layer', color='#E91E63', alpha=0.8)
-    ax.set_xlabel('Qubit $i$')
-    ax.set_ylabel(r'$|\Delta X_i|$')
-    ax.set_title(r'(c) $|\langle X_i \rangle_{\rm approx} - \langle X_i \rangle_{\rm exact}|$')
-    ax.set_xticks(range(16))
-    ax.legend(fontsize=9)
-    ax.grid(True, alpha=0.2, axis='y')
-
-    # --- |ΔZ_i| errors ---
-    ax = axes[1, 1]
-    err_trot01_z = np.abs(np.array(ed_z) - np.array(trot01_z))
-    err_trot02_z = np.abs(np.array(ed_z) - np.array(trot02_z))
-    err_hva_z = np.abs(np.array(ed_z) - hva_z)
-
-    ax.bar(x_pos - width, err_trot01_z, width, label=r'Trotter $\Delta t=0.1$', color='#2196F3', alpha=0.8)
-    ax.bar(x_pos, err_trot02_z, width, label=r'Trotter $\Delta t=0.2$', color='#FF9800', alpha=0.8)
-    ax.bar(x_pos + width, err_hva_z, width, label='HVA 3-layer', color='#E91E63', alpha=0.8)
-    ax.set_xlabel('Qubit $i$')
-    ax.set_ylabel(r'$|\Delta Z_i|$')
-    ax.set_title(r'(d) $|\langle Z_i \rangle_{\rm approx} - \langle Z_i \rangle_{\rm exact}|$')
-    ax.set_xticks(range(16))
-    ax.legend(fontsize=9)
-    ax.grid(True, alpha=0.2, axis='y')
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(PLOT_DIR, '03_observable_comparison.png'))
-    plt.close()
-    print("✅ 03_observable_comparison.png")
-
-    return hva_x, hva_z
+    print(f"   {'t':>5} " + ' '.join(f'{lab[:22]:>24}' for lab, _, _, _, _ in series))
+    for i, t in enumerate(time_pts):
+        print(f"   {t:5.1f} " + ' '.join(
+            f'{1 - f[i]:>11.3e}/{q[i]:<12d}' for _, _, _, f, q in series))
 
 
 # ============================================================================
@@ -456,16 +492,45 @@ def plot_training():
         ax2.axvline(len(gs_segments[0][1]) + len(gs_segments[0][2]) + 0.5,
                     color='#616161', ls=':', lw=1.5)
 
+    # --- The aborted L=5 run, overlaid ---
+    # The 41 h L=5 attempt died inside L-BFGS-B, and run_pipeline.py only writes
+    # gs_trained_params.json after both stages, so its angles are gone and it can
+    # never be plotted as a circuit. Its energies survive: 06a07ae recovered them
+    # from the run log into gs_L5_aborted.json. They belong on this panel because
+    # they answer the question the L=3 curve raises -- whether the 0.47 gap is
+    # the optimiser or the ansatz -- and the answer is the ansatz: five layers
+    # reach 0.28 with Adam alone, before any refinement.
+    # Drawn dashed and marker-only: the log is 11 sampled epochs out of 100, not
+    # a continuous history, and the run is not a deployable result.
+    _l5_path = os.path.join(RESULTS_DIR, 'gs_L5_aborted.json')
+    if os.path.exists(_l5_path):
+        with open(_l5_path) as f:
+            l5 = json.load(f)
+        ep = [e['epoch'] for e in l5['epoch_log']]
+        en = [e['loss'] for e in l5['epoch_log']]
+        ax2.plot(ep, en, 'o--', color='#F57C00', ms=5, lw=1.6, alpha=0.9,
+                 zorder=4,
+                 label='L=5, Adam only (ABORTED in L-BFGS-B)')
+        ax2.plot(ep[-1], en[-1], '*', color='#F57C00', ms=16,
+                 markeredgecolor='black', markeredgewidth=0.8, zorder=7)
+        ax2.annotate('L=5 after Adam: %.3f\ngap %.4f  (L=3: %.4f)'
+                     % (l5['final_adam_loss'], l5['gap_to_E0'],
+                        l5['reference_L3_production']['gap_to_E0']),
+                     xy=(ep[-1], en[-1]), xytext=(-10, 26),
+                     textcoords='offset points', fontsize=9, color='#E65100',
+                     ha='right',
+                     arrowprops=dict(arrowstyle='->', color='#F57C00', lw=1))
+
     ax2.axhline(y=ed['ground_energy'], color='#333333', ls='--', lw=2,
                label=f'ED ground (E₀ = {ed["ground_energy"]:.2f})')
     ax2.set_xlabel('Epoch')
     ax2.set_ylabel('Energy $E(\\theta)$')
-    ax2.set_title('(b) Ground State Training')
-    ax2.legend(fontsize=9, loc='upper right')
+    ax2.set_title('(b) Ground-state training: L=3 production, L=5 aborted')
+    ax2.legend(fontsize=8.5, loc='upper right')
     ax2.grid(True, alpha=0.3)
-    ax2.text(len(gs_losses)*0.5, gs_losses[-1] + 0.5,
-            f'Final: {gs_losses[-1]:.2f}\nGap: {gs_losses[-1] - ed["ground_energy"]:.2f}',
-            fontsize=10, color='#9C27B0')
+    ax2.text(len(gs_losses)*0.42, gs_losses[-1] + 0.9,
+            f'L=3 final: {gs_losses[-1]:.2f}\ngap: {gs_losses[-1] - ed["ground_energy"]:.4f}',
+            fontsize=9, color='#9C27B0')
 
     plt.tight_layout()
     plt.savefig(os.path.join(PLOT_DIR, '04_training_curves.png'))
@@ -474,305 +539,166 @@ def plot_training():
 
 
 # ============================================================================
-# Figure 5: Ground state comparison
-# ============================================================================
-def plot_ground_state():
-    """Compare ground state observables: ED vs BP-PPS HVA."""
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-
-    gs_ed_x = ed['ground_state']['X']
-    gs_ed_z = ed['ground_state']['Z']
-
-    # Compute HVA GS observables
-    from hamiltonians import SpinGlass2D
-    from classical_bench import ExactDiag
-    from ansatz import HVA
-    from qiskit.quantum_info import Statevector
-
-    model = SpinGlass2D(Lx=4, Ly=4, h=1.0, coupling_type='ea_bimodal', seed=42)
-    hva_builder = HVA(num_qubits=16, bonds=model.bonds, n_layers=3, Lx=4, Ly=4)
-    gs_params = np.array(gs_data['params'])
-    gs_qc = hva_builder.build_circuit(gs_params)
-    sv_init = Statevector.from_label('0' * 16)
-    psi_gs_hva = np.array(sv_init.evolve(gs_qc))
-
-    H = model.build_sparse_matrix()
-    ed_obj = ExactDiag(H, 16)
-    obs_gs_hva = ed_obj.local_observables(psi_gs_hva, model.bonds)
-
-    width = 0.3
-    x_pos = np.arange(16)
-
-    # ⟨X_i⟩ comparison
-    ax = axes[0]
-    ax.bar(x_pos - width/2, gs_ed_x, width, label='ED ground state', color='#333333', alpha=0.8)
-    ax.bar(x_pos + width/2, obs_gs_hva['X'], width, label='HVA (BP-PPS)', color='#9C27B0', alpha=0.8)
-    ax.set_xlabel('Qubit $i$')
-    ax.set_ylabel(r'$\langle X_i \rangle$')
-    ax.set_title(r'(a) Ground State $\langle X_i \rangle$')
-    ax.set_xticks(range(16))
-    ax.legend(fontsize=10)
-    ax.grid(True, alpha=0.2, axis='y')
-
-    # ⟨Z_i⟩ comparison
-    ax = axes[1]
-    ax.bar(x_pos - width/2, gs_ed_z, width, label='ED ground state', color='#333333', alpha=0.8)
-    ax.bar(x_pos + width/2, obs_gs_hva['Z'], width, label='HVA (BP-PPS)', color='#9C27B0', alpha=0.8)
-    ax.set_xlabel('Qubit $i$')
-    ax.set_ylabel(r'$\langle Z_i \rangle$')
-    ax.set_title(r'(b) Ground State $\langle Z_i \rangle$')
-    ax.set_xticks(range(16))
-    ax.legend(fontsize=10)
-    ax.grid(True, alpha=0.2, axis='y')
-
-    # Energy annotation
-    E_ed = ed['ground_energy']
-    E_hva = ed_obj.compute_energy(psi_gs_hva, model.bonds, model.J, model.h)
-    fig.suptitle(
-        f'Ground State: ED $E_0 = {E_ed:.2f}$, HVA $E = {E_hva:.2f}$, '
-        f'Fidelity $= {val["ground_state"]["gs_fidelity"]:.6f}$',
-        fontsize=13, fontweight='bold', y=1.02
-    )
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(PLOT_DIR, '05_ground_state.png'))
-    plt.close()
-    print("✅ 05_ground_state.png")
-
-
-# ============================================================================
 # Figure 6: Circuit depth & compression summary
 # ============================================================================
 def plot_depth_comparison():
-    """Compare circuit depth and gate count across methods."""
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5))
+    """What the circuit costs, and what that cost buys.
 
-    time_pts = [0.1, 0.2, 0.3, 0.5, 1.0]
-    # dt=0.2 has no entry for t=0.1 (rounds to 0 Trotter steps, so it was skipped).
-    time_pts_02 = [t for t in time_pts if str(t) in trotter['0.2']]
+    (a) and (b) are cost against time; (c) is accuracy against cost at a single
+    time. Splitting it that way is deliberate. (c) used to plot infidelity
+    against time, which made it a redrawing of figure 2(b) -- the same
+    redundancy that got figure 9 deleted -- and, worse, it invited the reader to
+    compare curves vertically at fixed t even though the curves sit at wildly
+    different gate counts there. The comparison that carries the goal-1 claim is
+    at *matched* cost, so (c) fixes t = 0.5 and sweeps the step count instead.
 
-    # Depths
-    depth_trot01 = [trotter['0.1'][str(t)]['depth'] for t in time_pts]
-    depth_trot02 = [trotter['0.2'][str(t)]['depth'] for t in time_pts_02]
-    depth_hva = [15] * len(time_pts)  # HVA depth is constant
+    All costs are counted analytically from the 4-colour schedule, on both
+    sides, before transpilation. The previous version of this figure read
+    qiskit's ``depth`` and ``n_2q_gates`` out of trotter_results.json -- an
+    unsorted ``qc.depth()`` and a doubled RZZ count -- against the HVA's
+    analytic numbers, and reported a 4.7x depth and 3.3x gate "compression"
+    that was almost entirely the two sides being counted differently. See
+    scripts/03f_depth_audit.py and docs/issues/05-writing.md.
 
-    # For multiple Δt composition: HVA depth = 15 * (t/0.5)
-    depth_hva_comp = [15 * max(1, int(round(t / 0.5))) for t in time_pts]
+    S4 is included from 2026-09-03. It is four orders of magnitude more
+    accurate than S2 here and costs five times the gates, which is exactly why
+    it belongs on a figure that shows cost on two of its three panels.
+    """
+    n_layers = config.get('n_layers', 3)
+    n_bonds = _trotter_ctx()['n_bonds']
 
-    # 2Q gates
-    n2q_trot01 = [trotter['0.1'][str(t)]['n_2q_gates'] for t in time_pts]
-    n2q_trot02 = [trotter['0.2'][str(t)]['n_2q_gates'] for t in time_pts_02]
-    n2q_hva = [72 * max(1, int(round(t / 0.5))) for t in time_pts]
+    # HVA only exists where a composed circuit exists: k blocks of delta_t.
+    if comp is not None:
+        time_pts = list(comp['time_pts'])
+        fid_hva = list(comp['hva_fid'])
+        ks = list(comp['k_values'])
+    else:
+        time_pts, fid_hva, ks = [0.5], [val['time_evolution']['fidelity']], [1]
+    depth_hva = [5 * n_layers * k for k in ks]
+    n2q_hva = [n_bonds * n_layers * k for k in ks]
 
-    # --- Panel (a): Circuit depth ---
-    ax1.plot(time_pts, depth_trot01, 's-', color='#2196F3', markersize=8, lw=2,
-            label=r'Trotter $S_2$ ($\Delta t=0.1$)')
-    ax1.plot(time_pts_02, depth_trot02, '^-', color='#FF9800', markersize=8, lw=2,
-            label=r'Trotter $S_2$ ($\Delta t=0.2$)')
-    ax1.plot(time_pts, depth_hva_comp, 'D-', color='#E91E63', markersize=8, lw=2,
-            label='HVA 3-layer (composed)')
+    # (label, colour, marker, depths, 2Q counts, fidelities)
+    series = [('HVA %d-layer (composed)' % n_layers, '#E91E63', 'D',
+               depth_hva, n2q_hva, fid_hva)]
+    for order, dt, color, mk in ((2, 0.1, '#2196F3', 's'),
+                                 (2, 0.2, '#FF9800', '^'),
+                                 (4, 0.2, '#4CAF50', 'v')):
+        d, q, f = [], [], []
+        for t in time_pts:
+            steps = trotter_steps(t, dt)
+            dep, n2q = grouped_cost(steps, order, n_bonds)
+            d.append(dep)
+            q.append(n2q)
+            f.append(grouped_fidelity(t, steps, order))
+        series.append((r'Trotter $S_%d$ grouped ($\Delta t \leq %.1f$)' % (order, dt),
+                       color, mk, d, q, f))
+
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(17.5, 5.2))
+
+    for lab, color, mk, d, q, f in series:
+        ax1.semilogy(time_pts, d, mk + '-', color=color, markersize=8, lw=2,
+                     label=lab)
+        ax2.semilogy(time_pts, q, mk + '-', color=color, markersize=8, lw=2,
+                     label=lab)
+
     ax1.set_xlabel('Time $t$')
-    ax1.set_ylabel('Circuit Depth')
-    ax1.set_title('(a) Circuit Depth vs Time')
-    ax1.legend(fontsize=10)
-    ax1.grid(True, alpha=0.3)
-
-    # Add compression ratio annotation at t=0.5
-    r = depth_trot01[3] / depth_hva_comp[3]
-    ax1.annotate(f'{r:.0f}× compression',
-                xy=(0.5, depth_hva_comp[3]),
-                xytext=(0.7, 50),
-                fontsize=11, color='#E91E63', fontweight='bold',
-                arrowprops=dict(arrowstyle='->', color='#E91E63'))
-
-    # --- Panel (b): 2-qubit gates ---
-    ax2.plot(time_pts, n2q_trot01, 's-', color='#2196F3', markersize=8, lw=2,
-            label=r'Trotter $S_2$ ($\Delta t=0.1$)')
-    ax2.plot(time_pts_02, n2q_trot02, '^-', color='#FF9800', markersize=8, lw=2,
-            label=r'Trotter $S_2$ ($\Delta t=0.2$)')
-    ax2.plot(time_pts, n2q_hva, 'D-', color='#E91E63', markersize=8, lw=2,
-            label='HVA 3-layer (composed)')
+    ax1.set_ylabel('Circuit depth (analytic, 4-colour schedule)')
+    ax1.set_title('(a) Circuit depth')
     ax2.set_xlabel('Time $t$')
-    ax2.set_ylabel('Number of 2-Qubit Gates')
-    ax2.set_title('(b) 2-Qubit Gate Count vs Time')
-    ax2.legend(fontsize=10)
-    ax2.grid(True, alpha=0.3)
+    ax2.set_ylabel('Number of 2-qubit gates')
+    ax2.set_title('(b) 2Q gate count')
+    for ax in (ax1, ax2):
+        ax.set_xticks(time_pts)
+        ax.legend(fontsize=9, loc='lower right')
+        ax.grid(True, alpha=0.3, which='both')
 
-    plt.tight_layout()
+    # The half of the story the pre-2026-08-31 figure hid: composing the HVA
+    # block costs a fixed 144 2Q per unit t, and once t > 0.5 the dt<=0.2
+    # Trotter circuit is cheaper than the composition on both cost axes. Placed
+    # as a bare label on the curve -- an arrow from the corner would have to
+    # cross the S4 and dt<=0.1 lines to get here.
+    ax2.annotate(r'$\Delta t\leq$0.2 Trotter is cheaper than the'
+                 '\ncomposed HVA for every $t>$0.5',
+                 xy=(0.03, 0.97), xycoords='axes fraction', fontsize=9,
+                 color='#B26A00', ha='left', va='top')
+
+    # Both circuits split the same 24 bonds into the same 4 colours, so depth is
+    # 5 x (2Q / n_bonds) for all four series and (a) is (b) rescaled. That is a
+    # result, not a redundancy -- it is why the depth axis is not an independent
+    # advantage -- so it is stated rather than left to be noticed.
+    ax1.annotate('depth $\\approx 5\\times$(2Q$/%d$) for all four:\n'
+                 'the depth axis is (b) rescaled' % n_bonds,
+                 xy=(0.04, 0.94), xycoords='axes fraction', fontsize=9,
+                 color='#444444', ha='left', va='top')
+
+    # --- (c) accuracy at matched cost, at one time ---
+    T_ISO = time_pts[0]
+    ax3.set_xlabel('2Q gate count at $t$ = %.1f' % T_ISO)
+    ax3.set_ylabel('Infidelity $1-F$ vs ED')
+    ax3.set_yscale('log')
+    ax3.set_xscale('log')
+    ax3.set_title('(c) Accuracy at matched cost, $t$ = %.1f' % T_ISO)
+    # Explicit ticks at the gate counts that actually occur: the default log
+    # locator packs 3x10^1 / 4x10^1 / 6x10^1 on top of each other here.
+    ax3.set_xticks([24, 48, 96, 192, 384, 768, 1536])
+    ax3.set_xticklabels(['24', '48', '96', '192', '384', '768', '1536'])
+    ax3.xaxis.set_minor_formatter(plt.NullFormatter())
+
+    for order, color, mk, steps_list in ((2, '#2196F3', 's', (1, 2, 3, 4, 6, 8, 12)),
+                                         (4, '#4CAF50', 'v', (1, 2, 3, 4))):
+        xs, ys = [], []
+        for s in steps_list:
+            xs.append(grouped_cost(s, order, n_bonds)[1])
+            ys.append(1 - grouped_fidelity(T_ISO, s, order))
+        ax3.plot(xs, ys, mk + '-', color=color, markersize=7, lw=2,
+                 label=r'Trotter $S_%d$ grouped, 1..%d steps' % (order, steps_list[-1]))
+
+    # BP-PPS blocks at the same time: L=3 is the production run, L=2 is the
+    # cheaper block measured in te_trained_params_L2.json.
+    hva_pts = [(n_bonds * n_layers, 1 - fid_hva[0], 'L=%d' % n_layers)]
+    _l2_path = os.path.join(RESULTS_DIR, 'te_trained_params_L2.json')
+    if os.path.exists(_l2_path):
+        with open(_l2_path) as f:
+            l2 = json.load(f)
+        hva_pts.append((n_bonds * 2, 1 - l2['composition'][0]['fidelity'], 'L=2'))
+    ax3.plot([p[0] for p in hva_pts], [p[1] for p in hva_pts], 'D',
+             color='#E91E63', markersize=11, markeredgecolor='black',
+             markeredgewidth=1.0, lw=0, zorder=6, label='BP-PPS HVA block')
+    for x, y, lab in hva_pts:
+        ax3.annotate(lab, xy=(x, y), xytext=(-14, -6),
+                     textcoords='offset points', fontsize=9, color='#E91E63',
+                     fontweight='bold', ha='right', va='center')
+
+    # The one exactly iso-cost pair on the figure: 72 2Q buys either the L=3
+    # BP-PPS block or three grouped S2 steps.
+    iso_2q = n_bonds * n_layers
+    iso_s2 = 1 - grouped_fidelity(T_ISO, iso_2q // n_bonds, 2)
+    ax3.annotate('%d 2Q buys either:\nBP-PPS  %.2e\ngrouped $S_2$  %.2e\n(%.1fx)'
+                 % (iso_2q, 1 - fid_hva[0], iso_s2, iso_s2 / (1 - fid_hva[0])),
+                 xy=(iso_2q, iso_s2), xytext=(0.03, 0.30),
+                 textcoords='axes fraction', fontsize=9, color='#333333',
+                 ha='left', va='top',
+                 bbox=dict(boxstyle='round,pad=0.35', fc='white', ec='#BBBBBB',
+                           lw=0.8, alpha=0.92),
+                 arrowprops=dict(arrowstyle='->', color='#666666', lw=1.2,
+                                 connectionstyle='arc3,rad=0.25'))
+    ax3.legend(fontsize=9, loc='upper right')
+    ax3.grid(True, alpha=0.3, which='both')
+
+    fig.suptitle(r'HVA vs grouped Trotter, both counted analytically before '
+                 r'transpilation.  $\Delta t$ is an upper bound: the circuit '
+                 r'uses $\lceil t/\Delta t\rceil$ steps and shrinks the step to '
+                 r'land on $t$ exactly.', fontsize=11)
+    plt.tight_layout(rect=[0, 0, 1, 0.93])
     plt.savefig(os.path.join(PLOT_DIR, '06_depth_comparison.png'))
     plt.close()
+
     print("✅ 06_depth_comparison.png")
-
-
-# ============================================================================
-# Figure 7: Per-observable loss heatmap
-# ============================================================================
-def plot_loss_heatmap():
-    """Heatmap of per-observable loss on 4×4 grid."""
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-
-    per_obs = val['time_evolution']['per_observable_loss']
-
-    for ax, pauli_type, title in [(ax1, 'X', r'$\mathcal{L}_{X_i}$'),
-                                    (ax2, 'Z', r'$\mathcal{L}_{Z_i}$')]:
-        grid = np.zeros((LY, LX))
-        for q in range(16):
-            key = f'{pauli_type}_{q}'
-            x, y = q % LX, q // LX
-            grid[y, x] = per_obs[key]
-
-        im = ax.imshow(grid, cmap='YlOrRd', interpolation='nearest', origin='upper')
-        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-
-        for y in range(LY):
-            for x in range(LX):
-                q = y * LX + x
-                val_text = grid[y, x]
-                color = 'white' if val_text > grid.max() * 0.6 else 'black'
-                ax.text(x, y, f'q{q}\n{val_text:.4f}',
-                       ha='center', va='center', fontsize=8, color=color)
-
-        ax.set_title(f'{title} (per-qubit loss)', fontsize=13)
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
-
-    fig.suptitle('BP-PPS Training Loss by Qubit Position', fontsize=14, fontweight='bold', y=1.02)
-    plt.tight_layout()
-    plt.savefig(os.path.join(PLOT_DIR, '07_loss_heatmap.png'))
-    plt.close()
-    print("✅ 07_loss_heatmap.png")
-
-
-# ============================================================================
-# Figure 8: Comprehensive summary (BP-PPS paper style)
-# ============================================================================
-def plot_summary():
-    """Combined summary figure in BP-PPS paper style."""
-    fig = plt.figure(figsize=(16, 12))
-    gs = gridspec.GridSpec(3, 3, hspace=0.4, wspace=0.35)
-
-    # (a) Training loss
-    ax1 = fig.add_subplot(gs[0, 0])
-    te_losses = te_data['losses']
-    ax1.semilogy(range(1, len(te_losses)+1), te_losses, '-', color='#E91E63', lw=2)
-    ax1.set_xlabel('Epoch')
-    ax1.set_ylabel(r'$\mathcal{L}_{X,Z}$')
-    ax1.set_title('(a) Training Loss')
-    ax1.grid(True, alpha=0.3, which='both')
-
-    # (b) Fidelity
-    ax2 = fig.add_subplot(gs[0, 1])
-    time_pts = [0.1, 0.2, 0.3, 0.5, 1.0]
-    time_pts_02 = [t for t in time_pts if str(t) in trotter['0.2']]
-    fid01 = [trotter['0.1'][str(t)]['fidelity'] for t in time_pts]
-    fid02 = [trotter['0.2'][str(t)]['fidelity'] for t in time_pts_02]
-    ax2.plot(time_pts, fid01, 's-', color='#2196F3', markersize=7, lw=2, label=r'Trot. $\Delta t$=0.1')
-    ax2.plot(time_pts_02, fid02, '^-', color='#FF9800', markersize=7, lw=2, label=r'Trot. $\Delta t$=0.2')
-    ax2.plot(0.5, val['time_evolution']['fidelity'], 'D', color='#E91E63', markersize=10)
-    ax2.set_xlabel('Time $t$')
-    ax2.set_ylabel('Fidelity')
-    ax2.set_title('(b) Fidelity vs Time')
-    ax2.legend(fontsize=9)
-    ax2.set_ylim(0.82, 1.005)
-    ax2.grid(True, alpha=0.3)
-
-    # (c) Circuit depth
-    ax3 = fig.add_subplot(gs[0, 2])
-    d01 = [trotter['0.1'][str(t)]['depth'] for t in time_pts]
-    d_hva = [15 * max(1, int(round(t/0.5))) for t in time_pts]
-    ax3.plot(time_pts, d01, 's-', color='#2196F3', markersize=7, lw=2, label=r'Trot. $\Delta t$=0.1')
-    ax3.plot(time_pts, d_hva, 'D-', color='#E91E63', markersize=7, lw=2, label='HVA')
-    ax3.set_xlabel('Time $t$')
-    ax3.set_ylabel('Depth')
-    ax3.set_title('(c) Circuit Depth')
-    ax3.legend(fontsize=9)
-    ax3.grid(True, alpha=0.3)
-
-    # (d) ⟨X_i⟩ at t=0.5
-    ax4 = fig.add_subplot(gs[1, :2])
-    ed_x = ed['time_points']['0.5']['X']
-    trot_x = trotter['0.1']['0.5']['X']
-
-    from hamiltonians import SpinGlass2D
-    from classical_bench import ExactDiag
-    from ansatz import HVA as HVAClass
-    from qiskit.quantum_info import Statevector
-    model = SpinGlass2D(Lx=4, Ly=4, h=1.0, coupling_type='ea_bimodal', seed=42)
-    hva_b = HVAClass(num_qubits=16, bonds=model.bonds, n_layers=3, Lx=4, Ly=4)
-    te_p = np.array(te_data['params'])
-    psi_hva = np.array(Statevector.from_label('0'*16).evolve(hva_b.build_circuit(te_p)))
-    H = model.build_sparse_matrix()
-    ed_o = ExactDiag(H, 16)
-    obs_hva = ed_o.local_observables(psi_hva, model.bonds)
-
-    w = 0.25
-    x_pos = np.arange(16)
-    ax4.bar(x_pos - w, ed_x, w, label='ED', color='#333333', alpha=0.8)
-    ax4.bar(x_pos, trot_x, w, label=r'Trot. $\Delta t$=0.1', color='#2196F3', alpha=0.8)
-    ax4.bar(x_pos + w, obs_hva['X'], w, label='HVA', color='#E91E63', alpha=0.8)
-    ax4.set_xlabel('Qubit $i$')
-    ax4.set_ylabel(r'$\langle X_i \rangle$')
-    ax4.set_title(r'(d) $\langle X_i \rangle$ at $t = 0.5$')
-    ax4.set_xticks(range(16))
-    ax4.legend(fontsize=9, ncol=3)
-    ax4.grid(True, alpha=0.2, axis='y')
-
-    # (e) ⟨Z_i⟩ at t=0.5
-    ax5 = fig.add_subplot(gs[1, 2])
-    ed_z = ed['time_points']['0.5']['Z']
-    trot_z = trotter['0.1']['0.5']['Z']
-    ax5.bar(x_pos - w, ed_z, w, label='ED', color='#333333', alpha=0.8)
-    ax5.bar(x_pos, trot_z, w, label='Trot.', color='#2196F3', alpha=0.8)
-    ax5.bar(x_pos + w, obs_hva['Z'], w, label='HVA', color='#E91E63', alpha=0.8)
-    ax5.set_xlabel('Qubit $i$')
-    ax5.set_ylabel(r'$\langle Z_i \rangle$')
-    ax5.set_title(r'(e) $\langle Z_i \rangle$ at $t = 0.5$')
-    ax5.set_xticks(range(0, 16, 2))
-    ax5.legend(fontsize=9)
-    ax5.grid(True, alpha=0.2, axis='y')
-
-    # (f) GS energy convergence
-    ax6 = fig.add_subplot(gs[2, 0])
-    gs_losses = gs_data['losses']
-    ax6.plot(range(1, len(gs_losses)+1), gs_losses, '-', color='#9C27B0', lw=2)
-    ax6.axhline(y=ed['ground_energy'], color='k', ls='--', lw=1.5)
-    ax6.set_xlabel('Epoch')
-    ax6.set_ylabel('Energy')
-    ax6.set_title('(f) GS Energy Convergence')
-    ax6.grid(True, alpha=0.3)
-
-    # (g) Error heatmap X
-    ax7 = fig.add_subplot(gs[2, 1])
-    per_obs = val['time_evolution']['per_observable_loss']
-    grid_x = np.zeros((4, 4))
-    for q in range(16):
-        grid_x[q//4, q%4] = per_obs[f'X_{q}']
-    im = ax7.imshow(grid_x, cmap='YlOrRd', origin='upper')
-    for y in range(4):
-        for x in range(4):
-            c = 'white' if grid_x[y,x] > grid_x.max()*0.5 else 'black'
-            ax7.text(x, y, f'{grid_x[y,x]:.3f}', ha='center', va='center', fontsize=8, color=c)
-    ax7.set_title(r'(g) $\mathcal{L}_{X_i}$ heatmap')
-    plt.colorbar(im, ax=ax7, fraction=0.046)
-
-    # (h) Error heatmap Z
-    ax8 = fig.add_subplot(gs[2, 2])
-    grid_z = np.zeros((4, 4))
-    for q in range(16):
-        grid_z[q//4, q%4] = per_obs[f'Z_{q}']
-    im = ax8.imshow(grid_z, cmap='YlOrRd', origin='upper')
-    for y in range(4):
-        for x in range(4):
-            c = 'white' if grid_z[y,x] > grid_z.max()*0.5 else 'black'
-            ax8.text(x, y, f'{grid_z[y,x]:.3f}', ha='center', va='center', fontsize=8, color=c)
-    ax8.set_title(r'(h) $\mathcal{L}_{Z_i}$ heatmap')
-    plt.colorbar(im, ax=ax8, fraction=0.046)
-
-    fig.suptitle('4×4 Spin Glass — BP-PPS Simulation Results Summary',
-                fontsize=16, fontweight='bold', y=1.01)
-    plt.savefig(os.path.join(PLOT_DIR, '08_summary.png'))
-    plt.close()
-    print("✅ 08_summary.png")
+    head = ' '.join(f'{lab[:20]:>22}' for lab, _, _, _, _, _ in series)
+    print(f"   {'t':>5} {'steps':>5} " + head)
+    for i, t in enumerate(time_pts):
+        row = ' '.join(f'{d[i]:>7d}d/{q[i]:<6d}2Q' for _, _, _, d, q, _ in series)
+        print(f"   {t:5.1f} {'':>5} " + row)
 
 
 # ============================================================================
@@ -782,10 +708,6 @@ if __name__ == '__main__':
     print("Generating plots...\n")
     plot_lattice()
     plot_fidelity()
-    plot_observables()
     plot_training()
-    plot_ground_state()
     plot_depth_comparison()
-    plot_loss_heatmap()
-    plot_summary()
     print(f"\nAll plots saved to: {PLOT_DIR}/")

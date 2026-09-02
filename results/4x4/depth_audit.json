@@ -1,0 +1,146 @@
+{
+  "num_qubits": 16,
+  "num_bonds": 24,
+  "rows": [
+    {
+      "circuit": "hva",
+      "unit": 1,
+      "n_2q": 24,
+      "depth": 5,
+      "depth_2q": 4
+    },
+    {
+      "circuit": "hva",
+      "unit": 2,
+      "n_2q": 48,
+      "depth": 10,
+      "depth_2q": 8
+    },
+    {
+      "circuit": "hva",
+      "unit": 3,
+      "n_2q": 72,
+      "depth": 15,
+      "depth_2q": 12
+    },
+    {
+      "circuit": "hva",
+      "unit": 4,
+      "n_2q": 96,
+      "depth": 20,
+      "depth_2q": 16
+    },
+    {
+      "circuit": "hva",
+      "unit": 6,
+      "n_2q": 144,
+      "depth": 30,
+      "depth_2q": 24
+    },
+    {
+      "circuit": "hva",
+      "unit": 8,
+      "n_2q": 192,
+      "depth": 40,
+      "depth_2q": 32
+    },
+    {
+      "circuit": "hva",
+      "unit": 12,
+      "n_2q": 288,
+      "depth": 60,
+      "depth_2q": 48
+    },
+    {
+      "circuit": "hva",
+      "unit": 16,
+      "n_2q": 384,
+      "depth": 80,
+      "depth_2q": 64
+    },
+    {
+      "circuit": "trotter_s2",
+      "unit": 1,
+      "n_2q": 24,
+      "depth": 6,
+      "depth_2q": 4
+    },
+    {
+      "circuit": "trotter_s2",
+      "unit": 2,
+      "n_2q": 48,
+      "depth": 11,
+      "depth_2q": 8
+    },
+    {
+      "circuit": "trotter_s2",
+      "unit": 3,
+      "n_2q": 72,
+      "depth": 16,
+      "depth_2q": 12
+    },
+    {
+      "circuit": "trotter_s2",
+      "unit": 4,
+      "n_2q": 96,
+      "depth": 21,
+      "depth_2q": 16
+    },
+    {
+      "circuit": "trotter_s2",
+      "unit": 6,
+      "n_2q": 144,
+      "depth": 31,
+      "depth_2q": 24
+    },
+    {
+      "circuit": "trotter_s2",
+      "unit": 8,
+      "n_2q": 192,
+      "depth": 41,
+      "depth_2q": 32
+    },
+    {
+      "circuit": "trotter_s2",
+      "unit": 12,
+      "n_2q": 288,
+      "depth": 61,
+      "depth_2q": 48
+    },
+    {
+      "circuit": "trotter_s2",
+      "unit": 16,
+      "n_2q": 384,
+      "depth": 81,
+      "depth_2q": 64
+    },
+    {
+      "circuit": "trotter_s4",
+      "unit": 1,
+      "n_2q": 120,
+      "depth": 26,
+      "depth_2q": 20
+    },
+    {
+      "circuit": "trotter_s4",
+      "unit": 2,
+      "n_2q": 240,
+      "depth": 51,
+      "depth_2q": 40
+    },
+    {
+      "circuit": "trotter_s4",
+      "unit": 3,
+      "n_2q": 360,
+      "depth": 76,
+      "depth_2q": 60
+    },
+    {
+      "circuit": "trotter_s4",
+      "unit": 4,
+      "n_2q": 480,
+      "depth": 101,
+      "depth_2q": 80
+    }
+  ]
+}

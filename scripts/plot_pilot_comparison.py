@@ -9,10 +9,11 @@ generation involved, since both pilots are exact-diagonalization comparisons.
      docs/issues/01-scale-plan.md's "no scaling advantage observed" note was
      missing (it only looked at HVA's absolute fidelity vs T, never at
      Trotter's fidelity at a matched gate count).
-  2. goal3_energy_vs_2q.png: ground-state energy gap vs 2Q-gate count -- the
-     item docs/issues/01-scale-plan.md:938 asks for. Only the statevector
-     ceiling (L=1..8, exact) and the one validated real BP-PPS point (L=3,
-     post truncation-fix) are plotted; L=5's real retrain is still running.
+  2. goal3_energy_vs_2q.png: WITHDRAWN 2026-09-03 -- it duplicated panel (a)
+     of report_goal3_layers.png exactly. See plot_goal3's docstring.
+
+Both figures in this file are now withdrawn. It is kept for the two docstrings,
+which record why each comparison was wrong or redundant.
 """
 
 import json
@@ -109,43 +110,25 @@ def plot_goal1():
 
 
 def plot_goal3():
-    gs = pilot['ground_state']
-    L_list = sorted(gs.keys(), key=int)
-    x_ceiling = [N_BONDS * int(L) for L in L_list]
-    y_ceiling = [max(1e-6, gs[L]['gap']) for L in L_list]
+    """WITHDRAWN 2026-09-03 -- superseded, do not re-enable.
 
-    fig, ax = plt.subplots(figsize=(6, 4.5))
-    ax.semilogy(x_ceiling, y_ceiling, 'o-', color='#4CAF50', linewidth=2,
-               markersize=7, label='statevector ceiling (exact, no truncation)')
+    This drew goal3_energy_vs_2q.png: the ground-state energy gap against 2Q
+    gate count, statevector ceiling plus the one real BP-PPS point at L=3.
+    Every element of it is panel (a) of report_goal3_layers.png
+    (scripts/plot_report_4x4.py), which draws the same ceiling from the same
+    statevector_pilot.json, the same L=3 BP-PPS marker, and additionally the
+    aborted L=5 point and the fidelity panel. Two files drawing one figure only
+    creates a chance for them to disagree after the next retrain.
 
-    # The one validated real BP-PPS point (post truncation-fix, L=3).
-    real_path = os.path.join(RESULTS_DIR, 'gs_trained_params.json')
-    if os.path.exists(real_path):
-        with open(real_path) as f:
-            real = json.load(f)
-        if real.get('initial_state') == 'plus':
-            L_real = real['n_layers']
-            # E0 = ceiling energy - ceiling gap, same E0 for every L.
-            e0 = next((gs[L]['energy'] - gs[L]['gap'] for L in L_list
-                      if int(L) == L_real), None)
-            if e0 is not None:
-                gap_real = abs(real['final_loss'] - e0)
-                ax.plot(N_BONDS * L_real, max(1e-6, gap_real), 'D',
-                       color='#E91E63', markersize=11,
-                       label=f'real BP-PPS training (L={L_real}, post-fix)')
-
-    ax.set_xlabel('2Q gate count')
-    ax.set_ylabel(r'Energy gap  $E - E_0$  (log scale)')
-    ax.set_title('Goal 3: ground-state energy gap vs 2Q-gate count (4x4)')
-    ax.grid(True, which='both', alpha=0.3)
-    ax.legend(fontsize=9)
-    fig.tight_layout()
-    path = os.path.join(PLOT_DIR, 'goal3_energy_vs_2q.png')
-    fig.savefig(path, dpi=150)
-    print(f"saved {path}")
-    return path
+    Use scripts/plot_report_4x4.py::fig_goal3.
+    """
+    raise SystemExit(
+        'goal3_energy_vs_2q.png was withdrawn on 2026-09-03: it duplicates '
+        'report_goal3_layers.png panel (a). Run scripts/plot_report_4x4.py '
+        'instead.')
 
 
 if __name__ == '__main__':
+    # Both figures in this file are withdrawn; each raises with the reason.
     plot_goal1()
     plot_goal3()
