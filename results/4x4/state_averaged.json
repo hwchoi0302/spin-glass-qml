@@ -56,6 +56,36 @@
       "n_2q": 384,
       "infid_zero": 2.2614384891372907e-06,
       "infid_avg": 2.9812234153547834e-06
+    },
+    {
+      "label": "grouped S4, 1 steps",
+      "n_2q": 120,
+      "infid_zero": 0.0021062563603357898,
+      "infid_avg": 0.003863569142368739
+    },
+    {
+      "label": "grouped S4, 2 steps",
+      "n_2q": 240,
+      "infid_zero": 2.7974303784539245e-06,
+      "infid_avg": 3.890526491190371e-06
+    },
+    {
+      "label": "grouped S4, 3 steps",
+      "n_2q": 360,
+      "infid_zero": 9.482162544038886e-08,
+      "infid_avg": 1.3529655262800588e-07
+    },
+    {
+      "label": "grouped S4, 4 steps",
+      "n_2q": 480,
+      "infid_zero": 9.098364950332893e-09,
+      "infid_avg": 1.3150527333749551e-08
+    },
+    {
+      "label": "grouped S4, 6 steps",
+      "n_2q": 720,
+      "infid_zero": 3.4502734003183377e-10,
+      "infid_avg": 5.037811279251514e-10
     }
   ]
 }

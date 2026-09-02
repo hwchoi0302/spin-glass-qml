@@ -180,10 +180,25 @@ def run_qaoa(model, plan_for, patterns, psi0, depths, max_seconds, e0, psi_gs):
     out = {}
     for p in depths:
         plan = plan_for(p)
+        # Annealing-inspired initialisation, plus random restarts.
+        #
+        # QAOA at large p does not optimise from a random start -- the landscape
+        # is full of poor local minima and the standard fix is to start from a
+        # discretised anneal, which QAOA contains as a special case (beta
+        # decreasing as the driver is switched off, gamma increasing as the
+        # problem is switched on). Measured at 4x4 with random starts only,
+        # p=10 stalled at dE=0.87 while p=4 reached 0.96 -- essentially no gain
+        # from six extra layers, which is an optimiser artefact and would
+        # understate QAOA badly.
+        anneal = np.empty(2 * p)
+        for l in range(p):
+            s = (l + 0.5) / p
+            anneal[2 * l] = -2.0 * (1.0 - s) * 1.0 * (1.0 / p)   # beta_l
+            anneal[2 * l + 1] = -2.0 * s * (1.0 / p)             # gamma_l
+        inits = [anneal] + [np.random.default_rng(100 + s).uniform(-0.5, 0.5, 2 * p)
+                            for s in (0, 1)]
         best = None
-        for seed in (0, 1, 2):
-            rng = np.random.default_rng(100 + seed)
-            init = rng.uniform(-0.5, 0.5, 2 * p)
+        for init in inits:
             cg = lambda x: qaoa_cost_grad(
                 x, plan, psi0, model.bonds, model.J, model.h,
                 model.num_qubits, patterns, p)

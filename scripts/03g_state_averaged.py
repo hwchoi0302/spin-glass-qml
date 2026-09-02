@@ -93,6 +93,24 @@ def apply_grouped_s2(psi, T, steps, n, bonds, J, h, patterns):
     return psi
 
 
+def apply_grouped_s4(psi, T, steps, n, bonds, J, h, patterns):
+    """Suzuki's 4th-order recursion built from grouped S2 steps.
+
+    S4(dt) = S2(p dt)^2 S2((1-4p) dt) S2(p dt)^2 with p = 1/(4 - 4^(1/3)), so
+    one S4 step costs five S2 steps -- 5*|bonds| two-qubit gates. That is the
+    price of the higher order and it is why S4 only pays off when the accuracy
+    target is tight enough for its steeper convergence to overcome the 5x
+    per-step cost.
+    """
+    w = 1.0 / (4.0 - 4.0 ** (1.0 / 3.0))
+    sub = [w, w, 1.0 - 4.0 * w, w, w]
+    dt = T / steps
+    for _ in range(steps):
+        for c in sub:
+            psi = apply_grouped_s2(psi, c * dt, 1, n, bonds, J, h, patterns)
+    return psi
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--n-states', type=int, default=32)
@@ -143,6 +161,12 @@ def main():
             lambda p, m=steps: apply_grouped_s2(p, T, m, n, model.bonds,
                                                 model.J, model.h, patterns),
             f"grouped S2, {steps} steps", 24 * steps))
+
+    for steps in (1, 2, 3, 4, 6):
+        rows.append(score(
+            lambda p, m=steps: apply_grouped_s4(p, T, m, n, model.bonds,
+                                                model.J, model.h, patterns),
+            f"grouped S4, {steps} steps", 5 * 24 * steps))
 
     out = args.out or os.path.join(ROOT, 'results/4x4', 'state_averaged.json')
     with open(out, 'w') as f:
