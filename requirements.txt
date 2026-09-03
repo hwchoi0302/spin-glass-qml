@@ -22,3 +22,9 @@ rich>=13.7.0
 
 # --- Testing & Quality ---
 pytest>=8.0.0
+
+# --- Accelerators (desktop) ---
+# Required by scripts/02b_time_sweep_parallel.py and TEST 18; both degrade to
+# a clean skip without it. cupy is installed separately and by CUDA version
+# (cupy-cuda12x), never pinned here.
+numba>=0.59.0

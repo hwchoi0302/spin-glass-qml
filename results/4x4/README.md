@@ -11,7 +11,7 @@ This directory contains the simulation outputs, exact diagonalization benchmarks
 > | Time evolution ($t=0.5$) fidelity vs ED | 0.99918 |
 > | Ground state (3 layers, from `\|+...+>`) | $E=-21.9993$, gap to $E_0$ 0.4729 |
 > | Ground state `\|BP-PPS - statevector\|` | 5e-6 (truncation estimate 1.43e-3) |
-> | `scripts/00_validate_small.py` | must print ALL 16 TESTS PASSED |
+> | `scripts/00_validate_small.py` | must print ALL 20 TESTS PASSED |
 >
 > Both of the gaps this note used to list are closed. The ground state is now
 > trained from `|+...+>` (the parity of $\prod_i X_i$ caps `|0...0>` at
@@ -37,7 +37,7 @@ This directory contains the simulation outputs, exact diagonalization benchmarks
 | ![Fidelity](plots/02_fidelity_comparison.png) | **Fidelity vs time**: HVA against grouped Trotter $S_2$ ($\Delta t \leq 0.1, 0.2$) and $S_4$ ($\Delta t \leq 0.2$), all on one grid. Redrawn 2026-09-03: the Trotter curves used to come from `trotter_results.json`, i.e. qiskit's generic Suzuki synthesis, which spends 2x the RZZ of the repo's own grouped builder for the same formula. $S_4$ is new, and every legend entry carries its 2Q cost because $S_4$ reaches $1-F\sim$1e-7 for 5x the gates. |
 | ![Training](plots/04_training_curves.png) | **Training Curves**: time-evolution loss (99.9% reduction) and ground-state energy minimisation. Panel (b) now overlays the aborted $L=5$ run (`gs_L5_aborted.json`): gap to $E_0$ falls 0.4729 → 0.2796, so the residual gap at $L=3$ is the ansatz, not the optimiser. |
 | ![Depth](plots/06_depth_comparison.png) | **Circuit cost and what it buys**: HVA vs grouped Trotter, both counted analytically before transpilation. Redrawn 2026-08-31 — the old version compared HVA's analytic depth against qiskit's unsorted `qc.depth()` and its double-emitted RZZ, inflating Trotter by 2.0x on gates and 2.6x on depth. Revised 2026-09-03: $S_4$ added, and panel (c) is now accuracy against 2Q count at fixed $t$=0.5 (it used to be accuracy against time, which merely redrew figure 2(b)). |
-| ![Depth audit](plots/report_depth_audit.png) | **Depth audit**: both circuits scheduled by the same ASAP pass. Depth and 2Q count are proportional with the same constant, so the depth axis carries no information the gate-count axis does not. |
+| ![Depth vs fidelity](plots/report_depth_fidelity.png) | **Accuracy per unit depth** at $T$=0.5, on the state-averaged metric. Replaces `report_depth_audit.png` (2026-09-03), whose bar panel compared a 72-gate circuit against a 240-gate one under two different depth conventions and could not be read. Panel (b) repeats it against gate count: the two have the same shape, because every circuit here obeys depth $=5\times$(2Q$/24$), so depth is not a second axis. |
 | ![Noise budget](plots/report_noise_budget.png) | **Noise budget by what you measure**: light-cone gate counts, global vs local signal, and the shots needed for 10% precision. Sampling at $\epsilon$=3e-3 is limited by spoofing, not shot noise, up to $t\approx$2. |
 
 > [!NOTE]

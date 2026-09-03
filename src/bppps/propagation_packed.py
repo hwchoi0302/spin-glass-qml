@@ -1,11 +1,19 @@
 """Bit-packed Pauli propagation engine (BP-PPS Appendix C representation).
 
-CLAUDE.md hard rule 4: bitpacking is for 7x7 and up; 4x4 stays on the
-string-keyed dict engine in propagation.py as the validated oracle. This
-module is the *new* engine being built ahead of that transition -- it is
-cross-checked against propagation.py at 4x4 (self_check() below and
-scripts/03b_bitpack_equivalence.py) precisely so that check can happen while
+CLAUDE.md hard rule 4: propagation.py's string-keyed dict is the oracle
+every other engine is checked against, and bitpacking is *required* from 7x7
+up because the string representation stops fitting there. Below 7x7 any
+engine may be used once it has been proven term-for-term equal to the oracle
+at 4x4 -- which is what self_check() below and TEST 17 do, while
 propagation.py is still small enough to trust by inspection.
+
+This particular module is a negative result and is kept as the oracle for
+the bit algebra rather than for speed: a (x, z) tuple key in pure Python
+carries ~28 bytes of object overhead regardless of its logical bit width, so
+it is no smaller and no faster than the strings it replaced. The
+representation only pays off once the keys live in an unboxed container --
+propagation_numba.py (typed dict) or propagation_sorted.py (parallel
+arrays), both of which reuse the algebra derived here.
 
 Representation: a Pauli string P in {I,X,Y,Z}^n becomes a pair of integer
 bitmasks (x, z), one bit per qubit:

@@ -55,6 +55,22 @@ Update that file at the end of a session so the next one starts warm.
    `propagate_forward` walks them in **reverse** (observable at the output,
    pushed toward the input); `propagate_backward` walks them forward. This was
    a real bug once — see `e9c3b50`.
-4. **Bitpacking from 7×7 up.** 4×4 stays on string-keyed dicts.
-5. `scripts/00_validate_small.py` must print `ALL 16 TESTS PASSED` before any
-   result from a run is trusted.
+4. **The string-dict engine is the oracle, not the default.**
+   `src/bppps/propagation.py` is what every other engine is checked against;
+   it is never chosen for speed. Any engine may be used at any lattice size
+   **once it has been proven term-for-term equal to the oracle at 4×4**
+   (TESTs 17–20). Bitpacking is *required* from 7×7 up, because the string
+   representation does not fit; below that it is simply allowed, and 4×4
+   production already uses the bit-packed numba engine
+   (`scripts/02b_time_sweep_parallel.py`). Do not reintroduce a rule that
+   pins an engine to a lattice size.
+5. **Choose the engine by measurement, and CPU is currently the measurement.**
+   GPU is *not* the default anywhere, 4×4 included. Pauli propagation is a
+   sequential chain of ~35 whole-array calls per gate with data-dependent
+   shapes, and cupy lost to numpy by 6.7× at 31.6K terms — a gap that only
+   widened when the CPU side got its 5.9× fix (2026-09-03). The one kernel
+   that is GPU-shaped is the statevector used by the comparison models
+   (Trotter / QAOA / adiabatic), and it is **unmeasured**, so it is not a
+   default either. Full reasoning: `docs/issues/03-engine-performance.md`.
+6. `scripts/00_validate_small.py` must print `ALL 20 TESTS PASSED` before any
+   result from a run is trusted. TEST 20 skipping (no CUDA device) is a pass.

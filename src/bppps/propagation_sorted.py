@@ -8,12 +8,20 @@ that GPU only becomes meaningful after this step: representing an SPO as two
 numpy operations (union, searchsorted, boolean masking) instead of a
 per-term loop -- a data-parallel kernel with no Python-level loop at all.
 
-The array API used here (union1d, searchsorted, where, boolean indexing) is
+The array API used here (sort, searchsorted, where, boolean indexing) is
 close enough between numpy and cupy that this same code runs on the GPU by
-swapping which module `xp` is bound to -- see propagation_gpu.py, which
-imports this module's *_xp functions with xp=cupy. That is the actual
-apples-to-apples comparison the CPU-vs-GPU question needs: same algorithm,
-same code, different array backend.
+passing `xp=cupy` to any function in this module -- there is no separate GPU
+module, and TEST 20 in scripts/00_validate_small.py drives exactly this code
+with xp=cupy. That is the apples-to-apples comparison the CPU-vs-GPU
+question needs: same algorithm, same code, different array backend.
+
+The 2026-09-03 answer to that question is *no* for this kernel; the reasons
+and the numbers are in docs/issues/03-engine-performance.md. Two things to
+know before re-running the benchmark: pass `stats=None`, because the
+truncation accounting does `float(xp.sum(...))` twice per gate and each is a
+device-to-host sync that serialises the whole pipeline; and note that a gate
+here is ~35 whole-array calls, so cupy's per-call dispatch overhead is
+multiplied by 35 * n_gates before any arithmetic happens.
 
 Derivation of the per-key update rule (why this can be a whole-array
 operation with no term-by-term pairing/dedup logic, unlike the dict
@@ -62,6 +70,30 @@ def from_sorted_arrays(keys, coeffs, xp=np) -> dict:
     return out
 
 
+def _union_sorted(a, b, xp=np):
+    """xp.union1d(a, b) for inputs that are each already unique.
+
+    Not a micro-optimisation: numpy 2.5's np.unique -- which union1d calls --
+    is ~70x slower than the sort-and-mask it is meant to be (2.4M uint64:
+    1696 ms vs 24 ms, measured). union1d is called once per gate here, and it
+    dominated the whole engine: one RX gate over 1.2M terms cost 855 ms with
+    it and 175 ms without. The result is bit-identical, not approximate.
+    """
+    s = xp.sort(xp.concatenate((a, b)))
+    if s.size == 0:
+        return s
+    keep = xp.ones(s.size, dtype=bool)
+    keep[1:] = s[1:] != s[:-1]
+    return s[keep]
+
+
+def _argsort(a, xp=np):
+    """Stable sort where the backend has one: the array being sorted is two
+    already-sorted runs concatenated, which timsort merges in O(N) instead of
+    re-sorting. cupy's argsort is stable by default and rejects `kind`."""
+    return xp.argsort(a, kind='stable') if xp is np else xp.argsort(a)
+
+
 def _lookup(keys, coeffs, query_keys, xp):
     """old(query_keys), 0.0 where query_keys is absent from `keys`."""
     n = keys.shape[0]
@@ -87,7 +119,7 @@ def apply_rx_sorted(keys, coeffs, qubit: int, theta: float, thresh: float, xp=np
 
     anti_keys = keys[anti]
     partner_keys = anti_keys ^ kbit  # flip x-bit only (low 32 bits)
-    union_keys = xp.union1d(anti_keys, partner_keys)
+    union_keys = _union_sorted(anti_keys, partner_keys, xp)
 
     old_self = _lookup(keys, coeffs, union_keys, xp)
     partner_of_union = union_keys ^ kbit
@@ -100,7 +132,7 @@ def apply_rx_sorted(keys, coeffs, qubit: int, theta: float, thresh: float, xp=np
 
     keep = xp.abs(out_vals) > thresh
     out_keys, out_vals = out_keys[keep], out_vals[keep]
-    order = xp.argsort(out_keys)
+    order = _argsort(out_keys, xp)
     return out_keys[order], out_vals[order]
 
 
@@ -123,7 +155,7 @@ def apply_rzz_sorted(keys, coeffs, qi: int, qj: int, theta: float, thresh: float
 
     anti_keys = keys[anti]
     partner_keys = anti_keys ^ m_hi  # flip both z-bits (high 32 bits)
-    union_keys = xp.union1d(anti_keys, partner_keys)
+    union_keys = _union_sorted(anti_keys, partner_keys, xp)
 
     old_self = _lookup(keys, coeffs, union_keys, xp)
     partner_of_union = union_keys ^ m_hi
@@ -142,7 +174,7 @@ def apply_rzz_sorted(keys, coeffs, qi: int, qj: int, theta: float, thresh: float
 
     keep = xp.abs(out_vals) > thresh
     out_keys, out_vals = out_keys[keep], out_vals[keep]
-    order = xp.argsort(out_keys)
+    order = _argsort(out_keys, xp)
     return out_keys[order], out_vals[order]
 
 

@@ -29,6 +29,15 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
 ]
+# The bit-packed engines. numba is what scripts/02b_time_sweep_parallel.py
+# actually runs on at 4x4, so this is not optional in practice on the desktop
+# -- it is only separated out because the laptop does not need it to write
+# code. cupy is deliberately NOT listed: its wheel is CUDA-version specific
+# (cupy-cuda12x on the desktop's driver) and pinning it here would break the
+# laptop install. See docs/issues/03-engine-performance.md.
+accel = [
+    "numba>=0.59.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

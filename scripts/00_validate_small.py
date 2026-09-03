@@ -739,7 +739,16 @@ def test_18_numba_engine_matches_string_engine():
     print("=" * 60)
     print("TEST 18: numba-JIT engine matches the string-dict oracle")
     print("=" * 60)
-    from bppps.propagation_numba import self_check as numba_self_check
+    try:
+        from bppps.propagation_numba import self_check as numba_self_check
+    except ImportError as e:
+        # Optional accelerator, same treatment as cupy in TEST 20. numba is
+        # not a base dependency but IS required by
+        # scripts/02b_time_sweep_parallel.py, so a skip here means that
+        # script cannot run on this machine -- install `.[accel]`.
+        print(f"  SKIPPED: numba not installed ({e})")
+        print("           -> 02b_time_sweep_parallel.py will NOT run here\n")
+        return
 
     for seed in range(5):
         numba_self_check(seed=seed, n=4, n_gates=80)
@@ -753,12 +762,12 @@ def test_19_sorted_engine_matches_string_engine():
 
     This is the representation docs/issues/03-engine-performance.md says GPU
     only becomes meaningful after: an SPO as two sorted parallel arrays
-    (keys, coeffs), gates applied as whole-array numpy ops (union1d,
+    (keys, coeffs), gates applied as whole-array numpy ops (sort,
     searchsorted, boolean masking) with no per-term Python loop at all --
     unlike propagation_numba.py, which is still a term-by-term loop, just
     JIT-compiled. The same code runs on a GPU by swapping xp=numpy for
-    xp=cupy (see propagation_gpu.py), which is the actual apples-to-apples
-    comparison a CPU-vs-GPU question needs.
+    xp=cupy (TEST 20 below), which is the actual apples-to-apples comparison
+    a CPU-vs-GPU question needs.
     """
     print("=" * 60)
     print("TEST 19: sorted-array engine matches the string-dict oracle")
@@ -779,6 +788,8 @@ def test_20_gpu_engine_matches_string_engine():
     actual apples-to-apples check for the CPU-vs-GPU question in
     docs/issues/03-engine-performance.md: identical code (propagation_sorted
     with xp=cupy instead of xp=numpy), same random circuits, same oracle.
+    This test checks *correctness* only. The speed answer is no for this
+    kernel -- see that file's "GPU 재판정" section.
     """
     print("=" * 60)
     print("TEST 20: GPU (cupy) sorted-array engine matches the string oracle")
@@ -821,5 +832,5 @@ if __name__ == '__main__':
     test_20_gpu_engine_matches_string_engine()
 
     print("=" * 60)
-    print("ALL 20 TESTS PASSED ✅ (TEST 20 skips cleanly without a GPU)")
+    print("ALL 20 TESTS PASSED ✅ (18 skips without numba, 20 without a GPU)")
     print("=" * 60)
