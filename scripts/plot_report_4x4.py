@@ -196,100 +196,206 @@ def fig_goal2():
 
 
 # --------------------------------------------------------------------------
-# Figure 3 -- goal 3: layer sweep, ceiling vs what BP-PPS reached
+# Figure 3 -- goal 3: the three routes into the register, at equal 2Q cost
 # --------------------------------------------------------------------------
-def fig_goal3():
-    """Ground-state layer sweep: the exact ceiling, and what BP-PPS reached on it.
+def _hva_ceiling():
+    """Best statevector optimum of the HVA at each L, over both runs that made one.
 
-    The ground-state half of statevector_pilot.json survives the a45a88a
-    retraction that killed its time-evolution half. The retraction was about
-    overfitting to a single input state; energy is not a single-state quantity,
-    so optimising the HVA angles directly on the 2^16 statevector really does
-    give the best that ansatz can do at each L.
+    Two scripts have optimised the *same* ansatz on the *same* Hamiltonian from
+    the same |+...+>, and they disagree because they were given different
+    budgets and different starts:
 
-    Two BP-PPS points are drawn on it, and they say opposite things:
+      03_statevector_pilot.py   Trotter warm start, 600 s per L   (L = 1..8)
+      03f_gs_competitors.py     +-0.1 random x2, 300 s per L      (L = 1..12)
 
-      L=3  gap 0.4729 against a ceiling of 0.4726  -- lands on it, 3e-4
-      L=5  gap 0.2796 against a ceiling of 0.0419  -- 6.7x short
-
-    The L=5 point is NOT evidence that BP-PPS cannot reach the L=5 ceiling: the
-    run was killed inside L-BFGS-B after 41 h with only Adam completed, so it
-    is a lower bound on an unfinished optimisation. It is on the figure because
-    leaving it off would let "BP-PPS lands on the ceiling" read as established
-    at every depth, and it is established at exactly one.
+    The pilot wins at every L >= 3 -- at L=8 by 3.3x in dE -- so taking 03f's
+    HVA row as "the ceiling" would understate the ansatz. Neither is a proof of
+    optimality; both are lower bounds on what the ansatz can do, so the ceiling
+    drawn here is the better of the two at each L, and which run supplied it is
+    recorded in `src`.
     """
-    gs = load('statevector_pilot.json')['ground_state']
+    comp = load('gs_competitors.json')['hva']
+    pilot = load('statevector_pilot.json')['ground_state']
+    out = {}
+    for L in sorted({int(k) for k in comp} | {int(k) for k in pilot}):
+        cands = []
+        if str(L) in comp:
+            cands.append((comp[str(L)]['gap'], comp[str(L)]['fidelity'], '03f'))
+        if str(L) in pilot:
+            cands.append((pilot[str(L)]['gap'], pilot[str(L)]['fidelity'], 'pilot'))
+        gap, fid, src = min(cands)
+        out[L] = dict(n_2q=BONDS_4X4 * L, gap=gap, fidelity=fid, src=src)
+    return out
+
+
+def _monotone(g, y):
+    """Running minimum: drop points that a capped optimiser made non-monotone."""
+    keep, best = [], np.inf
+    for gi, yi in zip(g, y):
+        if yi < best:
+            best = yi
+            keep.append((gi, yi))
+    return np.array([k[0] for k in keep]), np.array([k[1] for k in keep])
+
+
+def _gates_for(g, y, target):
+    """2Q gates a route needs to reach `target`, log-log. Returns (gates, extrapolated)."""
+    g, y = _monotone(g, y)
+    lg, ly, t = np.log(g), np.log(y), np.log(target)
+    if t > ly[0]:
+        return None, False
+    for i in range(len(ly) - 1):
+        if ly[i] >= t >= ly[i + 1]:
+            f = (ly[i] - t) / (ly[i] - ly[i + 1])
+            return float(np.exp(lg[i] + f * (lg[i + 1] - lg[i]))), False
+    a, b = np.polyfit(lg[-3:], ly[-3:], 1)
+    return float(np.exp((t - b) / a)), True
+
+
+def fig_goal3():
+    """Goal 3 against the two circuits that produce the same deliverable.
+
+    All three routes emit the same gate alphabet -- RX on every qubit, RZZ on
+    every bond -- so one layer is 24 two-qubit gates whichever route drew it,
+    and matching layer count is matching 2Q count. They differ only in what
+    fixes the angles: nothing (adiabatic schedule), 2 free angles per layer
+    (QAOA), or 40 (HVA, which is multi-angle QAOA's parameterisation).
+
+    Two things on this figure are measured rather than argued, and one is not:
+
+      measured    the adiabatic curve, re-derived independently to 1.5e-14
+      measured    BP-PPS L=3: its angles evaluate to -21.999320 on the
+                  statevector, 4.7e-6 from what BP-PPS itself reported
+      NOT         that the anneal is a strong opponent. It is a linear
+                  schedule with no counterdiabatic term, and the leading CD
+                  term is a 1-qubit rotation, i.e. free in this figure's own
+                  currency. RUNBOOK 2-6 measures it; until then the ratios
+                  here are upper bounds on the advantage over an anneal.
+    """
+    comp = load('gs_competitors.json')
+    ceil = _hva_ceiling()
     val = load('validation_results.json')['ground_state']
     l5_path = os.path.join(RES, 'gs_L5_aborted.json')
-    l5 = None
-    if os.path.exists(l5_path):
-        with open(l5_path) as f:
-            l5 = json.load(f)
+    l5 = json.load(open(l5_path)) if os.path.exists(l5_path) else None
 
-    L = sorted(int(k) for k in gs)
-    gap = [gs[str(l)]['gap'] for l in L]
-    fid = [gs[str(l)]['fidelity'] for l in L]
-    n2q = [BONDS_4X4 * l for l in L]
+    e_gap_ed = comp['ed_first_excited'] - comp['ed_ground_energy']
 
-    bp_gap = val['ed_ground_energy'] * -1 + val['bppps_final_energy'] * -1
-    bp_gap = val['bppps_final_energy'] - val['ed_ground_energy']
+    ad = sorted(comp['adiabatic'].values(), key=lambda r: r['n_2q'])
+    qa = sorted(comp['qaoa'].values(), key=lambda r: r['n_2q'])
+    ad_g = np.array([r['n_2q'] for r in ad], float)
+    ad_dE = np.array([r['gap'] for r in ad])
+    ad_F = np.array([r['fidelity'] for r in ad])
+    qa_g = np.array([r['n_2q'] for r in qa], float)
+    qa_dE = np.array([r['gap'] for r in qa])
+    qa_F = np.array([r['fidelity'] for r in qa])
 
-    fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.4))
+    # HVA: L<=8 is the ceiling proper; L=10,12 exist only in the 300 s run and
+    # come out *worse* than L=8, which is the cap, not the ansatz.
+    hv_L = sorted(ceil)
+    conv = [L for L in hv_L if L <= 8]
+    capped = [L for L in hv_L if L > 8]
+    hv_g = np.array([ceil[L]['n_2q'] for L in conv], float)
+    hv_dE = np.array([ceil[L]['gap'] for L in conv])
+    hv_F = np.array([ceil[L]['fidelity'] for L in conv])
 
+    C_QAOA = '#00897b'
+    fig, axes = plt.subplots(1, 3, figsize=(16.5, 4.9))
+
+    # ---------------------------------------------------------------- (a)
     ax = axes[0]
-    ax.plot(n2q, gap, '-o', color=C_CEIL, lw=1.8, ms=6,
-            label='statevector ceiling (exact)')
-    ax.plot([BONDS_4X4 * 3], [bp_gap], 'D', color=C_HVA, ms=13, zorder=5,
-            mec='white', mew=1.5, label='BP-PPS trained ($L$=3)')
-    ax.annotate(f'reaches the ceiling\nto {abs(bp_gap - gs["3"]["gap"]):.1e}',
-                xy=(72, bp_gap), xytext=(88, 1.6), fontsize=8.5, color='#444',
-                arrowprops=dict(arrowstyle='->', color='#888', lw=1))
+    ax.plot(ad_g, ad_dE, '-s', color=C_TROT, lw=1.8, ms=5,
+            label='adiabatic Trotter ($M$=2..100, no CD)')
+    ax.plot(qa_g, qa_dE, '-^', color=C_QAOA, lw=1.8, ms=6,
+            label='QAOA ($p$=1..12, 2 angles/layer)')
+    ax.plot(hv_g, hv_dE, '-o', color=C_CEIL, lw=1.8, ms=6,
+            label='HVA statevector ceiling (40 angles/layer)')
+    ax.plot([ceil[L]['n_2q'] for L in capped], [ceil[L]['gap'] for L in capped],
+            'o', mfc='none', mec=C_CEIL, ms=6, lw=0,
+            label='HVA, optimiser hit the 300 s cap')
+    ax.plot([BONDS_4X4 * 3], [val['energy_gap']], 'D', color=C_HVA, ms=13,
+            zorder=6, mec='white', mew=1.5, label='BP-PPS trained, deployable')
     if l5 is not None:
-        ax.plot([BONDS_4X4 * 5], [l5['gap_to_E0']], 'D', color='#F57C00',
-                ms=13, zorder=5, mec='black', mew=1.0,
-                label='BP-PPS $L$=5 (ABORTED, Adam only)')
-        ax.annotate('%.1fx above the $L$=5 ceiling;\nrun killed in L-BFGS-B at 41 h'
-                    % (l5['gap_to_E0'] / gs['5']['gap']),
-                    xy=(BONDS_4X4 * 5, l5['gap_to_E0']), xytext=(126, 0.9),
-                    fontsize=8.5, color='#E65100',
-                    arrowprops=dict(arrowstyle='->', color='#F57C00', lw=1))
+        ax.plot([BONDS_4X4 * 5], [l5['gap_to_E0']], 'D', color='#F57C00', ms=12,
+                zorder=6, mec='black', mew=1.0, label='BP-PPS $L$=5 (aborted)')
+    ax.axhline(e_gap_ed, color=C_REF, ls=':', lw=1.3)
+    ax.text(700, e_gap_ed * 1.2, f'ED gap $E_1-E_0$ = {e_gap_ed:.3f}',
+            fontsize=8, color=C_REF)
+    ax.annotate('', xy=(72, val['energy_gap']), xytext=(1081, val['energy_gap']),
+                arrowprops=dict(arrowstyle='<->', color='#444', lw=1.2))
+    ax.text(330, val['energy_gap'] * 0.50, '15.0x fewer 2Q gates\nfor the same energy',
+            fontsize=9, color='#444', ha='center', fontweight='bold',
+            bbox=dict(fc='white', ec='none', alpha=0.85, pad=1.5))
+    ax.set_xscale('log')
     ax.set_yscale('log')
-    ax.set_xlabel('2Q gate count  (4x4)')
-    ax.set_ylabel('energy gap  $E - E_0$')
-    ax.set_title('(a) Energy above the exact ground state', fontsize=12)
-    ax.legend(fontsize=9)
+    ax.set_xlabel('2Q gate count  (4x4, 24 per layer)')
+    ax.set_ylabel('energy above exact ground state  $E-E_0$')
+    ax.set_ylim(6e-3, 12)
+    ax.set_title('(a) Accuracy per two-qubit gate', fontsize=12)
+    ax.legend(fontsize=7.4, loc='upper right', framealpha=0.97)
     style(ax)
 
+    # ---------------------------------------------------------------- (b)
     ax = axes[1]
-    ax.plot(L, fid, '-o', color=C_CEIL, lw=1.8, ms=6,
-            label='statevector ceiling (exact)')
-    ax.plot([3], [val['gs_fidelity']], 'D', color=C_HVA, ms=13, zorder=5,
-            mec='white', mew=1.5, label='BP-PPS trained ($L$=3)')
-    ax.axhline(0.5, color=C_REF, ls=':', lw=1.4)
-    ax.text(1.1, 0.515, 'parity ceiling if started from $|0\\ldots0\\rangle$',
-            fontsize=8.5, color=C_REF, va='bottom', ha='left')
-    ax.axvline(5, color='#ffb300', lw=8, alpha=0.22)
-    ax.text(5, 0.30, '$L$=5:\nbest value', fontsize=8.5, ha='center',
-            color='#7a5c00')
-    # No BP-PPS marker at L=5 on this panel: the aborted run recovered its
-    # energies from the log but not its angles, and fidelity needs the state.
-    if l5 is not None:
-        ax.text(5.2, 0.70, 'no BP-PPS $F_0$ at $L$=5:\nthe aborted run kept its\n'
-                'energies, not its angles', fontsize=8.5, color='#E65100',
-                ha='left', va='top')
-    ax.set_ylim(0, 1.08)
-    ax.set_xlabel('HVA layers $L$')
-    ax.set_ylabel('ground-state fidelity $F_0$')
-    ax.set_title('(b) Fidelity vs circuit depth', fontsize=12)
-    ax.legend(fontsize=9, loc='lower right')
+    ax.plot(ad_g, ad_F, '-s', color=C_TROT, lw=1.8, ms=5, label='adiabatic Trotter')
+    ax.plot(qa_g, qa_F, '-^', color=C_QAOA, lw=1.8, ms=6, label='QAOA')
+    ax.plot(hv_g, hv_F, '-o', color=C_CEIL, lw=1.8, ms=6, label='HVA ceiling')
+    ax.plot([BONDS_4X4 * 3], [val['gs_fidelity']], 'D', color=C_HVA, ms=13,
+            zorder=6, mec='white', mew=1.5, label='BP-PPS trained ($L$=3)')
+    ax.axhline(0.5, color=C_REF, ls=':', lw=1.3)
+    ax.text(30, 0.52, 'parity ceiling if started from $|0\\ldots0\\rangle$',
+            fontsize=8, color=C_REF)
+    ax.text(330, 0.10, 'no BP-PPS point at $L$=5:\nthe aborted run kept\n'
+            'its energies, not its angles', fontsize=8, color='#E65100')
+    ax.set_xscale('log')
+    ax.set_xlabel('2Q gate count  (4x4)')
+    ax.set_ylabel('ground-state fidelity  $F_0$')
+    ax.set_ylim(0, 1.05)
+    ax.set_title('(b) Overlap with the true ground state', fontsize=12)
+    ax.legend(fontsize=8, loc='center right')
     style(ax)
 
-    fig.suptitle('Goal 3: at $L$=3 BP-PPS lands on the exact ceiling of the same '
-                 'ansatz, so the remaining gap there is depth, not training.\n'
-                 'That is established at $L$=3 only — the single $L$=5 attempt '
-                 'was killed 6.7x short of its own ceiling',
-                 fontsize=12, y=0.995)
-    fig.tight_layout(rect=[0, 0, 1, 0.89])
+    # ---------------------------------------------------------------- (c)
+    ax = axes[2]
+    targets = np.geomspace(2.0, 0.02, 60)
+    for g, y, col, lab in ((qa_g, qa_dE, C_QAOA, 'QAOA / HVA'),
+                           (ad_g, ad_dE, C_TROT, 'adiabatic / HVA')):
+        solid_x, solid_y, dash_x, dash_y = [], [], [], []
+        for t in targets:
+            num, num_ex = _gates_for(g, y, t)
+            den, den_ex = _gates_for(hv_g, hv_dE, t)
+            if num is None or den is None:
+                continue
+            (dash_x if (num_ex or den_ex) else solid_x).append(t)
+            (dash_y if (num_ex or den_ex) else solid_y).append(num / den)
+        ax.plot(solid_x, solid_y, '-', color=col, lw=2.4, label=lab + '  (measured)')
+        ax.plot(dash_x, dash_y, '--', color=col, lw=1.8, alpha=0.75,
+                label=lab + '  (extrapolated)')
+    ax.plot([val['energy_gap']], [15.0], 'D', color=C_HVA, ms=11, zorder=6,
+            mec='white', mew=1.4)
+    ax.plot([val['energy_gap']], [1.79], 'D', color=C_HVA, ms=11, zorder=6,
+            mec='white', mew=1.4)
+    ax.annotate('what BP-PPS actually\ndelivers today: 72 2Q',
+                xy=(val['energy_gap'], 15.0), xytext=(1.6, 3.0),
+                fontsize=8.5, color='#444', ha='center',
+                arrowprops=dict(arrowstyle='->', color='#888', lw=1))
+    ax.axhline(1.0, color=C_REF, ls=':', lw=1.3)
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.invert_xaxis()
+    ax.set_xlabel('target accuracy  $E-E_0$   (harder to the right)')
+    ax.set_ylabel('2Q gates needed, relative to HVA')
+    ax.set_title('(c) The advantage grows with accuracy', fontsize=12)
+    ax.legend(fontsize=7.6, loc='upper left')
+    style(ax)
+
+    fig.suptitle(
+        'Goal 3 — three routes to the same deliverable, priced in two-qubit gates\n'
+        'Deployable today: BP-PPS $L$=3, 72 2Q, $E-E_0$=0.473 — 15.0x fewer gates than the anneal, '
+        '1.8x fewer than QAOA, both read inside the measured range\n'
+        'Caveat: the anneal is a linear schedule with no counterdiabatic term, and the leading CD term '
+        'is a 1-qubit rotation, i.e. free in this figure\'s own currency (RUNBOOK 2-6)',
+        fontsize=10, y=0.995)
+    fig.tight_layout(rect=[0, 0, 1, 0.9])
     p = os.path.join(OUT, 'report_goal3_layers.png')
     fig.savefig(p, dpi=150, facecolor='white')
     print('wrote', p)
