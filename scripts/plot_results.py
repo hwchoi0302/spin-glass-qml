@@ -42,9 +42,17 @@ with open(os.path.join(RESULTS_DIR, 'model_config.json')) as f:
 with open(os.path.join(RESULTS_DIR, 'ed_results.json')) as f:
     ed = json.load(f)
 _N_LAYERS = CONFIG['ansatz']['n_layers']
-with open(resolve_params_path(RESULTS_DIR, 'te', _N_LAYERS)) as f:
+_te_path = resolve_params_path(RESULTS_DIR, 'te', _N_LAYERS)
+if _te_path is None:
+    raise SystemExit(f"no time-evolution parameters at n_layers={_N_LAYERS} "
+                     f"in {RESULTS_DIR}")
+_gs_path = resolve_params_path(RESULTS_DIR, 'gs', _N_LAYERS)
+if _gs_path is None:
+    raise SystemExit(f"no ground-state parameters at n_layers={_N_LAYERS} "
+                     f"in {RESULTS_DIR}")
+with open(_te_path) as f:
     te_data = json.load(f)
-with open(resolve_params_path(RESULTS_DIR, 'gs', _N_LAYERS)) as f:
+with open(_gs_path) as f:
     gs_data = json.load(f)
 with open(os.path.join(RESULTS_DIR, 'validation_results.json')) as f:
     val = json.load(f)

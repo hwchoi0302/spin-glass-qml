@@ -43,6 +43,15 @@ PLOT_DIR = os.path.join(RESULTS_DIR, 'plots')
 os.makedirs(PLOT_DIR, exist_ok=True)
 
 # Load config and data
+#
+# This runs at import time, before `if __name__ == '__main__'` parses --set.
+# CONFIG['ansatz']['n_layers'] here is always configs/ansatz_ibm.yaml's value,
+# never a --set ansatz.n_layers=... override -- unlike CONFIG['truncation'] and
+# CONFIG['optimizer'], which the part-2 sweep functions read fresh inside their
+# own bodies and which do see an override, since Python looks up a module
+# global at call time. --set is documented (and only used) for
+# truncation.min_delta; do not rely on --set ansatz.n_layers=N to select which
+# trained block part 1 loads below -- it silently keeps loading the default.
 with open(os.path.join(RESULTS_DIR, 'model_config.json')) as f:
     config = json.load(f)
 _TE_PATH = resolve_params_path(RESULTS_DIR, 'te', CONFIG['ansatz']['n_layers'])

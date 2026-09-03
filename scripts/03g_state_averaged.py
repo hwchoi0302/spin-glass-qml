@@ -169,6 +169,15 @@ def main():
     # if someone remembered to edit this line, and docs/RUNBOOK.md section 2-1
     # had to tell them to. The layer count comes from the record itself, so a
     # file cannot be scored against the wrong-size plan.
+    #
+    # config.resolve_params_path() prefers the layer-tagged name
+    # (te_trained_params_L{n}.json) over the legacy trained_params.json
+    # whenever both exist for the same layer count, so this scan has to agree
+    # -- otherwise a retrained L=3 would leave every other consumer reading
+    # the fresh file while this one silently kept scoring the old one.
+    # sorted() alone gets this backwards: "te_trained_params_L3.json" sorts
+    # before "trained_params.json" ('e' < 'r'), so plain last-writer-wins
+    # would let the legacy file clobber the tagged one in `found`.
     res_dir = os.path.join(ROOT, 'results/4x4')
     found = {}
     for fname in sorted(os.listdir(res_dir)):
@@ -181,7 +190,10 @@ def main():
             continue
         if 'n_layers' not in rec:
             continue
-        found[int(rec['n_layers'])] = (fname, rec)
+        L = int(rec['n_layers'])
+        if fname == 'trained_params.json' and L in found:
+            continue  # a tagged file for this L exists; it takes priority
+        found[L] = (fname, rec)
 
     rows = []
     for L in sorted(found):

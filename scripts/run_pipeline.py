@@ -283,10 +283,16 @@ def stage3_train(config, model, targets, out_dir, parts=('te', 'gs')):
         section("Time-evolution compression")
         te_trainer = _make_trainer(config, model, 'time_evolution',
                                    target_spos=targets)
-        _, te_record = te_trainer.optimize(opt, params_init=params_init)
+        # checkpoint_path: written the moment Adam finishes, overwritten with
+        # the complete record when L-BFGS-B also finishes. Without this, a
+        # kill during stage 2 discards every completed Adam epoch along with
+        # the angles that produced them -- see optimize()'s docstring and
+        # results/4x4/gs_L5_aborted.json, which is exactly that failure.
+        te_path = params_path(out_dir, 'te', n_layers)
+        _, te_record = te_trainer.optimize(opt, params_init=params_init,
+                                           checkpoint_path=te_path)
         te_record['delta_t'] = delta_t
         te_record['n_layers'] = n_layers
-        te_path = params_path(out_dir, 'te', n_layers)
         with open(te_path, 'w') as f:
             json.dump(te_record, f, indent=2)
         print(f"  Saved: {os.path.basename(te_path)}")
@@ -302,9 +308,10 @@ def stage3_train(config, model, targets, out_dir, parts=('te', 'gs')):
     gs_trainer = _make_trainer(config, model, 'ground_state',
                                hamiltonian_spo=hamiltonian_spo(model),
                                initial_state=gs_init)
-    _, gs_record = gs_trainer.optimize(opt, params_init=params_init)
-    gs_record['n_layers'] = n_layers
     gs_path = params_path(out_dir, 'gs', n_layers)
+    _, gs_record = gs_trainer.optimize(opt, params_init=params_init,
+                                       checkpoint_path=gs_path)
+    gs_record['n_layers'] = n_layers
     with open(gs_path, 'w') as f:
         json.dump(gs_record, f, indent=2)
     print(f"  Saved: {os.path.basename(gs_path)}")

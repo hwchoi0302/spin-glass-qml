@@ -647,9 +647,41 @@ class BPPPSTrainer:
     # Full two-stage optimisation
     # ------------------------------------------------------------------
 
+    def _record(self, params: np.ndarray, adam_losses: List[float],
+               lbfgsb_losses: List[float], t_start: float,
+               status: Optional[str] = None) -> dict:
+        """Build the JSON-serialisable record :meth:`optimize` returns.
+
+        Factored out so a checkpoint written after Adam and the final record
+        written after L-BFGS-B are the same shape -- a consumer does not need
+        to know which one it got, only whether ``lbfgsb_losses`` is empty.
+        """
+        final_loss = (lbfgsb_losses[-1] if lbfgsb_losses
+                      else (adam_losses[-1] if adam_losses else float('nan')))
+        record = {
+            'params': params.tolist(),
+            'adam_losses': adam_losses,
+            'lbfgsb_losses': lbfgsb_losses,
+            'losses': adam_losses + lbfgsb_losses,
+            'final_loss': final_loss,
+            'n_layers': self.n_layers,
+            'initial_state': self.initial_state,
+            'n_params': self.n_params,
+            'mode': self.mode,
+            'final_delta': self.delta,
+            'delta_history': self.delta_history,
+            'truncation_error_estimate': self.last_error_estimate,
+            'n_discarded_terms': self.last_stats.n_discarded,
+            'training_time_s': time.time() - t_start,
+        }
+        if status is not None:
+            record['status'] = status
+        return record
+
     def optimize(self, optimizer_config: dict,
                  params_init: Optional[np.ndarray] = None,
-                 verbose: bool = True) -> Tuple[np.ndarray, dict]:
+                 verbose: bool = True,
+                 checkpoint_path: Optional[str] = None) -> Tuple[np.ndarray, dict]:
         """Run the configured Adam -> L-BFGS-B schedule.
 
         Args:
@@ -657,6 +689,16 @@ class BPPPSTrainer:
                 config (``stage1``, ``stage2``, optionally ``ground_state``).
             params_init: Starting parameters.
             verbose: Print progress.
+            checkpoint_path: If given, the Adam-only record is written here as
+                JSON the moment Adam finishes, before L-BFGS-B starts. This is
+                the fix for the failure that discarded a 41 h ground-state run
+                at L=5 (results/4x4/gs_L5_aborted.json): the pipeline used to
+                write nothing until *both* stages returned, so a kill inside
+                L-BFGS-B lost 19.9 h of completed Adam optimisation along with
+                the angles that produced it. A checkpoint costs one JSON write
+                of a few hundred KB and makes an interrupted run recoverable
+                rather than a total loss. L-BFGS-B still overwrites this path
+                with the complete record on normal completion.
 
         Returns:
             (final_params, record) where record holds both loss histories,
@@ -679,6 +721,19 @@ class BPPPSTrainer:
             eps=stage1.get('eps', 1e-8),
         )
 
+        if checkpoint_path is not None:
+            import json as _json
+            checkpoint = self._record(
+                params, adam_losses, [], t_start,
+                status='Adam complete; L-BFGS-B not yet run or not finished. '
+                       'If this is the newest record for this run, the '
+                       'process was interrupted during stage 2 -- these '
+                       'angles are the last confirmed-good checkpoint.')
+            with open(checkpoint_path, 'w') as f:
+                _json.dump(checkpoint, f, indent=2)
+            if verbose:
+                print(f"  Checkpoint after Adam: {checkpoint_path}")
+
         lbfgs_losses: List[float] = []
         if stage2.get('enabled', False):
             if verbose:
@@ -690,22 +745,5 @@ class BPPPSTrainer:
                 verbose=verbose,
             )
 
-        final_loss = (lbfgs_losses[-1] if lbfgs_losses
-                      else (adam_losses[-1] if adam_losses else float('nan')))
-        record = {
-            'params': params.tolist(),
-            'adam_losses': adam_losses,
-            'lbfgsb_losses': lbfgs_losses,
-            'losses': adam_losses + lbfgs_losses,
-            'final_loss': final_loss,
-            'n_layers': self.n_layers,
-            'initial_state': self.initial_state,
-            'n_params': self.n_params,
-            'mode': self.mode,
-            'final_delta': self.delta,
-            'delta_history': self.delta_history,
-            'truncation_error_estimate': self.last_error_estimate,
-            'n_discarded_terms': self.last_stats.n_discarded,
-            'training_time_s': time.time() - t_start,
-        }
+        record = self._record(params, adam_losses, lbfgs_losses, t_start)
         return params, record

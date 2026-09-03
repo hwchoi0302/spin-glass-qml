@@ -15,13 +15,19 @@ module, and TEST 20 in scripts/00_validate_small.py drives exactly this code
 with xp=cupy. That is the apples-to-apples comparison the CPU-vs-GPU
 question needs: same algorithm, same code, different array backend.
 
-The 2026-09-03 answer to that question is *no* for this kernel; the reasons
-and the numbers are in docs/issues/03-engine-performance.md. Two things to
-know before re-running the benchmark: pass `stats=None`, because the
-truncation accounting does `float(xp.sum(...))` twice per gate and each is a
-device-to-host sync that serialises the whole pipeline; and note that a gate
-here is ~35 whole-array calls, so cupy's per-call dispatch overhead is
-multiplied by 35 * n_gates before any arithmetic happens.
+The answer is a crossover, not a verdict, and it moved once already: a
+2026-08-30 measurement said GPU never wins here, but that run was aborted at
+42 minutes under CPU contention. Re-measured on an idle machine
+(docs/issues/03-engine-performance.md), cupy loses to numpy at 30K terms
+(0.23x) and wins at 100K (2.0x), 300K (12.3x) and 1.2M (17.3x). Training's own
+workload sits at ~400K terms, right on the crossover, which is why the CPU
+engine is what training uses; target generation at 1.2M terms is on the
+winning side. Two things to know before re-running the benchmark yourself:
+pass `stats=None`, because the truncation accounting does `float(xp.sum(...))`
+twice per gate and each is a device-to-host sync that serialises the whole
+pipeline; and measure on an idle machine, since a gate here is ~35 whole-array
+calls and cupy's per-call dispatch overhead needs real GPU throughput to
+outrun, not a CPU that is also busy with something else.
 
 Derivation of the per-key update rule (why this can be a whole-array
 operation with no term-by-term pairing/dedup logic, unlike the dict
