@@ -28,7 +28,8 @@ sys.path.insert(0, os.path.join(PROJECT_ROOT, 'src'))
 from qiskit import QuantumCircuit, qasm2                     # noqa: E402
 
 from ansatz import HVA, TrotterCircuit                       # noqa: E402
-from config import apply_overrides, load_config, output_dir  # noqa: E402
+from config import (apply_overrides, load_config, output_dir,  # noqa: E402
+                    resolve_params_path)
 from hamiltonians import SpinGlass2D                         # noqa: E402
 
 
@@ -132,7 +133,12 @@ def main() -> None:
         model_config = json.load(f)
     model = SpinGlass2D.from_config_dict(model_config)
 
-    params_path = os.path.join(out_dir, 'trained_params.json')
+    params_path = resolve_params_path(out_dir, 'te',
+                                      config['ansatz']['n_layers'])
+    if params_path is None:
+        raise SystemExit(
+            f"no time-evolution parameters at "
+            f"n_layers={config['ansatz']['n_layers']} in {out_dir}")
     if not os.path.exists(params_path):
         raise SystemExit(f"Missing {params_path}. Train the ansatz first.")
     params, n_layers, record = load_trained_params(params_path)

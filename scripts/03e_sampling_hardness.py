@@ -43,7 +43,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(PROJECT_ROOT, 'src'))
 
 from classical_bench import ExactDiag                                   # noqa: E402
-from config import load_config, output_dir                              # noqa: E402
+from config import load_config, output_dir, resolve_params_path                              # noqa: E402
 from hamiltonians import SpinGlass2D                                     # noqa: E402
 from qiskit.quantum_info import Statevector                              # noqa: E402
 
@@ -80,7 +80,12 @@ def main():
     out_dir = output_dir(config, create=False)
     with open(os.path.join(out_dir, 'model_config.json')) as f:
         model = SpinGlass2D.from_config_dict(json.load(f))
-    with open(os.path.join(out_dir, 'trained_params.json')) as f:
+    n_layers = config['ansatz']['n_layers']
+    tp = resolve_params_path(out_dir, 'te', n_layers)
+    if tp is None:
+        raise SystemExit(f'no time-evolution parameters at n_layers={n_layers} '
+                         f'in {out_dir}')
+    with open(tp) as f:
         trained = json.load(f)
 
     n = model.num_qubits

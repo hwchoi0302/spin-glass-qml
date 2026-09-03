@@ -42,7 +42,8 @@ from bppps.warm_start import build_initial_params             # noqa: E402
 from classical_bench import (                                 # noqa: E402
     ExactDiag, MAX_QUBITS_ED, MAX_QUBITS_SPARSE, statevector_gb,
 )
-from config import apply_overrides, describe, load_config, output_dir  # noqa: E402
+from config import (apply_overrides, describe, load_config, output_dir,  # noqa: E402
+                    params_path, resolve_params_path)
 from hamiltonians import SpinGlass2D                          # noqa: E402
 
 
@@ -235,6 +236,24 @@ def _make_trainer(config, model, mode, **kwargs):
     )
 
 
+
+def _load_params(out_dir: str, kind: str, n_layers: int) -> dict:
+    """Load a trained-parameter record, or stop with the reason.
+
+    Stage 4 validates one specific circuit, so silently validating a different
+    layer count than the one configured would be worse than not running.
+    """
+    path = resolve_params_path(out_dir, kind, n_layers)
+    if path is None:
+        raise SystemExit(
+            f"No '{kind}' parameters trained at n_layers={n_layers} in "
+            f"{out_dir}. Run stage 3 at this layer count first, or point "
+            f"--set ansatz.n_layers at one that has been trained.")
+    print(f"  Using {os.path.basename(path)}")
+    with open(path) as f:
+        return json.load(f)
+
+
 def stage3_train(config, model, targets, out_dir, parts=('te', 'gs')):
     """Run the BP-PPS training stage.
 
@@ -265,9 +284,11 @@ def stage3_train(config, model, targets, out_dir, parts=('te', 'gs')):
                                    target_spos=targets)
         _, te_record = te_trainer.optimize(opt, params_init=params_init)
         te_record['delta_t'] = delta_t
-        with open(os.path.join(out_dir, 'trained_params.json'), 'w') as f:
+        te_record['n_layers'] = n_layers
+        te_path = params_path(out_dir, 'te', n_layers)
+        with open(te_path, 'w') as f:
             json.dump(te_record, f, indent=2)
-        print(f"  Saved: trained_params.json")
+        print(f"  Saved: {os.path.basename(te_path)}")
         print("  NOTE: composition_fidelity.json is derived from this file - "
               "re-run `python scripts/plot_extended.py --part 1`.")
 
@@ -281,9 +302,11 @@ def stage3_train(config, model, targets, out_dir, parts=('te', 'gs')):
                                hamiltonian_spo=hamiltonian_spo(model),
                                initial_state=gs_init)
     _, gs_record = gs_trainer.optimize(opt, params_init=params_init)
-    with open(os.path.join(out_dir, 'gs_trained_params.json'), 'w') as f:
+    gs_record['n_layers'] = n_layers
+    gs_path = params_path(out_dir, 'gs', n_layers)
+    with open(gs_path, 'w') as f:
         json.dump(gs_record, f, indent=2)
-    print(f"  Saved: gs_trained_params.json")
+    print(f"  Saved: {os.path.basename(gs_path)}")
 
     return te_record, gs_record
 
@@ -441,12 +464,11 @@ def main() -> None:
     if 4 in args.stages:
         if targets is None:
             targets = stage1_targets(config, model, out_dir)
+        n_layers = config['ansatz']['n_layers']
         if te_record is None:
-            with open(os.path.join(out_dir, 'trained_params.json')) as f:
-                te_record = json.load(f)
+            te_record = _load_params(out_dir, 'te', n_layers)
         if gs_record is None:
-            with open(os.path.join(out_dir, 'gs_trained_params.json')) as f:
-                gs_record = json.load(f)
+            gs_record = _load_params(out_dir, 'gs', n_layers)
         if ed_results is None:
             ed_path = os.path.join(out_dir, 'ed_results.json')
             if os.path.exists(ed_path):

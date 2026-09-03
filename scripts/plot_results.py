@@ -29,9 +29,10 @@ import matplotlib.patches as mpatches
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(PROJECT_ROOT, 'src'))
 
-from config import load_config, output_dir  # noqa: E402
+from config import load_config, output_dir, resolve_params_path  # noqa: E402
 
-RESULTS_DIR = output_dir(load_config(), create=False)
+CONFIG = load_config()
+RESULTS_DIR = output_dir(CONFIG, create=False)
 PLOT_DIR = os.path.join(RESULTS_DIR, 'plots')
 os.makedirs(PLOT_DIR, exist_ok=True)
 
@@ -40,9 +41,10 @@ with open(os.path.join(RESULTS_DIR, 'model_config.json')) as f:
     config = json.load(f)
 with open(os.path.join(RESULTS_DIR, 'ed_results.json')) as f:
     ed = json.load(f)
-with open(os.path.join(RESULTS_DIR, 'trained_params.json')) as f:
+_N_LAYERS = CONFIG['ansatz']['n_layers']
+with open(resolve_params_path(RESULTS_DIR, 'te', _N_LAYERS)) as f:
     te_data = json.load(f)
-with open(os.path.join(RESULTS_DIR, 'gs_trained_params.json')) as f:
+with open(resolve_params_path(RESULTS_DIR, 'gs', _N_LAYERS)) as f:
     gs_data = json.load(f)
 with open(os.path.join(RESULTS_DIR, 'validation_results.json')) as f:
     val = json.load(f)

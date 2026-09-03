@@ -17,6 +17,7 @@ values can be overridden from the command line via ``--set section.key=value``
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any, Dict, Iterable, Optional
 
@@ -140,3 +141,79 @@ def describe(config: Dict[str, Any]) -> str:
         + (f" -> {o['stage2']['name']}({o['stage2']['max_iter']} it)"
            if o['stage2']['enabled'] else "")
     )
+
+
+# ---------------------------------------------------------------------------
+# Trained-parameter files
+# ---------------------------------------------------------------------------
+#
+# These used to be two fixed names, ``trained_params.json`` and
+# ``gs_trained_params.json``, written by run_pipeline.py's stage 3 regardless
+# of ``ansatz.n_layers``. output_dir() only varies with the lattice, so a layer
+# sweep -- the exact thing docs/RUNBOOK.md section 2-1 asks for, three
+# ``--set ansatz.n_layers=...`` runs at once -- had all three processes writing
+# one file, and the last writer won. Worse, the file they overwrote was the
+# committed L=3 production result that validation_results.json,
+# composition_fidelity.json and hw_circuits.json are all derived from; it was
+# destroyed this way once already and had to be recovered with git checkout.
+#
+# The name now carries the layer count, so a sweep cannot collide and cannot
+# reach the production artefact. ``te_trained_params_L2.json`` already existed
+# by hand from an earlier L=2 experiment, so this is that convention made
+# official rather than a new one.
+
+_PARAMS_PREFIX = {'te': 'te_trained_params', 'gs': 'gs_trained_params'}
+
+# What stage 3 wrote before the layer count was part of the name. Reading still
+# falls back to these so results committed under the old scheme keep resolving.
+_PARAMS_LEGACY = {'te': 'trained_params.json', 'gs': 'gs_trained_params.json'}
+
+
+def params_path(out_dir: str, kind: str, n_layers: int) -> str:
+    """Where stage 3 writes a trained-parameter record.
+
+    Args:
+        out_dir: Results directory, from :func:`output_dir`.
+        kind: ``'te'`` for time-evolution compression, ``'gs'`` for
+            ground-state preparation.
+        n_layers: HVA layer count the record was trained at.
+
+    Returns:
+        Absolute path. Always layer-tagged, so two layer counts never share a
+        file.
+    """
+    if kind not in _PARAMS_PREFIX:
+        raise ValueError(f"kind must be 'te' or 'gs', got {kind!r}")
+    return os.path.join(out_dir, f"{_PARAMS_PREFIX[kind]}_L{int(n_layers)}.json")
+
+
+def resolve_params_path(out_dir: str, kind: str, n_layers: int) -> Optional[str]:
+    """Find a trained-parameter record for reading, newest scheme first.
+
+    Args:
+        out_dir: Results directory.
+        kind: ``'te'`` or ``'gs'``.
+        n_layers: Layer count wanted.
+
+    Returns:
+        Path to the layer-tagged file if it exists; otherwise the pre-rename
+        name if *that* exists; otherwise ``None``. The caller decides whether a
+        missing record is fatal -- a layer sweep skips missing points, while
+        stage 4 cannot run without one.
+    """
+    tagged = params_path(out_dir, kind, n_layers)
+    if os.path.exists(tagged):
+        return tagged
+    # The legacy name carries no layer count, so it is only the right file if
+    # the record inside says so. Returning it unchecked would hand an L=3
+    # result to a caller that asked for L=9 -- silently, and with the wrong
+    # number of angles for the plan it is about to build.
+    legacy = os.path.join(out_dir, _PARAMS_LEGACY[kind])
+    if os.path.exists(legacy):
+        try:
+            with open(legacy) as f:
+                if int(json.load(f).get('n_layers', -1)) == int(n_layers):
+                    return legacy
+        except (ValueError, OSError, json.JSONDecodeError):
+            pass
+    return None

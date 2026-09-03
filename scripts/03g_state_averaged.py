@@ -164,12 +164,29 @@ def main():
             f"circuit only exists at multiples of the trained chunk.")
     k = int(round(T / BLOCK_DT))
 
-    rows = []
-    for fname, L in (('trained_params.json', 3), ('te_trained_params_L2.json', 2)):
-        path = os.path.join(ROOT, 'results/4x4', fname)
-        if not os.path.exists(path):
+    # Every trained block in the results directory, discovered rather than
+    # listed. The old hard-coded pair meant a new layer count was scored only
+    # if someone remembered to edit this line, and docs/RUNBOOK.md section 2-1
+    # had to tell them to. The layer count comes from the record itself, so a
+    # file cannot be scored against the wrong-size plan.
+    res_dir = os.path.join(ROOT, 'results/4x4')
+    found = {}
+    for fname in sorted(os.listdir(res_dir)):
+        if not (fname.startswith('te_trained_params_L')
+                or fname == 'trained_params.json'):
             continue
-        rec = json.load(open(path))
+        try:
+            rec = json.load(open(os.path.join(res_dir, fname)))
+        except (ValueError, OSError):
+            continue
+        if 'n_layers' not in rec:
+            continue
+        found[int(rec['n_layers'])] = (fname, rec)
+
+    rows = []
+    for L in sorted(found):
+        fname, rec = found[L]
+        path = os.path.join(res_dir, fname)
         th = np.asarray(rec.get('params', rec.get('optimized_params')))
         plan = plan_for(L)
 

@@ -33,7 +33,7 @@ from bppps.warm_start import build_initial_params
 from bppps.pauli_utils import make_observable_label
 from qiskit.quantum_info import Statevector
 
-from config import load_config, output_dir  # noqa: E402
+from config import load_config, output_dir, resolve_params_path  # noqa: E402
 
 CONFIG = load_config()
 RESULTS_DIR = output_dir(CONFIG, create=False)
@@ -45,7 +45,10 @@ os.makedirs(PLOT_DIR, exist_ok=True)
 # Load config and data
 with open(os.path.join(RESULTS_DIR, 'model_config.json')) as f:
     config = json.load(f)
-with open(os.path.join(RESULTS_DIR, 'trained_params.json')) as f:
+_TE_PATH = resolve_params_path(RESULTS_DIR, 'te', CONFIG['ansatz']['n_layers'])
+if _TE_PATH is None:
+    raise SystemExit(f"no time-evolution parameters in {RESULTS_DIR}")
+with open(_TE_PATH) as f:
     te_data = json.load(f)
 with open(os.path.join(RESULTS_DIR, 'ed_results.json')) as f:
     ed_data = json.load(f)

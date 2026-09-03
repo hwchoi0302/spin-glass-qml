@@ -57,7 +57,8 @@ from bppps.propagation import (                                 # noqa: E402
 from bppps.pauli_utils import is_iz_only, make_observable_label  # noqa: E402
 from bppps.warm_start import trotter_warm_start                 # noqa: E402
 from classical_bench import ExactDiag, MAX_QUBITS_ED            # noqa: E402
-from config import apply_overrides, load_config, output_dir     # noqa: E402
+from config import (apply_overrides, load_config, output_dir,   # noqa: E402
+                    resolve_params_path)
 from hamiltonians import SpinGlass2D                            # noqa: E402
 
 
@@ -199,7 +200,12 @@ def stage2_composition(config, model, out_dir, sw_dir, ed, psi0):
     banner("STAGE 2: composition  U(theta; chunk)^k  (no training)")
     ts = config['time_sweep']
     chunk = ts['chunk_delta_t']
-    params_path = os.path.join(out_dir, 'trained_params.json')
+    params_path = resolve_params_path(out_dir, 'te',
+                                      config['ansatz']['n_layers'])
+    if params_path is None:
+        raise SystemExit(
+            f"no time-evolution parameters at "
+            f"n_layers={config['ansatz']['n_layers']} in {out_dir}")
     if not os.path.exists(params_path):
         print(f"  Missing {params_path}; run scripts/run_pipeline.py --stages 3 first.")
         return {}
@@ -210,7 +216,7 @@ def stage2_composition(config, model, out_dir, sw_dir, ed, psi0):
 
     trained_chunk = record.get('delta_t', config['target']['delta_t'])
     if abs(trained_chunk - chunk) > 1e-12:
-        print(f"  WARNING: trained_params.json was trained at delta_t="
+        print(f"  WARNING: {os.path.basename(params_path)} was trained at delta_t="
               f"{trained_chunk} but time_sweep.chunk_delta_t={chunk}. "
               f"Composition results will be meaningless.")
 
