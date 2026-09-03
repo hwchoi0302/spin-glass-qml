@@ -1,0 +1,146 @@
+{
+  "note": "advantage = matched grouped-S2 product-state-average infidelity / BP-PPS, at equal 2Q count (steps = L*k)",
+  "by_T": {
+    "0.5": [
+      {
+        "n_layers": 2,
+        "n_2q": 48,
+        "bppps_infid_avg": 0.026758654391088932,
+        "matched_s2_infid_avg": 0.013499400801643358,
+        "advantage_vs_matched_s2": 0.504487281174306,
+        "bppps_zero_over_avg": 0.8231767408715268,
+        "s2_zero_over_avg": 0.7536271501527023
+      },
+      {
+        "n_layers": 3,
+        "n_2q": 72,
+        "bppps_infid_avg": 0.0008804745707752248,
+        "matched_s2_infid_avg": 0.0025205856897368983,
+        "advantage_vs_matched_s2": 2.862758077746206,
+        "bppps_zero_over_avg": 0.9285993308644692,
+        "s2_zero_over_avg": 0.7560496254891718
+      },
+      {
+        "n_layers": 4,
+        "n_2q": 96,
+        "bppps_infid_avg": 0.00018795170037744224,
+        "matched_s2_infid_avg": 0.0007818189778143747,
+        "advantage_vs_matched_s2": 4.159680259579114,
+        "bppps_zero_over_avg": 0.969714526725242,
+        "s2_zero_over_avg": 0.7571251715862887
+      },
+      {
+        "n_layers": 5,
+        "n_2q": 120,
+        "bppps_infid_avg": 6.229244257216493e-05,
+        "matched_s2_infid_avg": 0.0003172869663866651,
+        "advantage_vs_matched_s2": 5.0935065841910525,
+        "bppps_zero_over_avg": 0.9460186413302965,
+        "s2_zero_over_avg": 0.7576590286052513
+      },
+      {
+        "n_layers": 6,
+        "n_2q": 144,
+        "bppps_infid_avg": 2.7369993468417952e-05,
+        "matched_s2_infid_avg": 0.00015224500103327987,
+        "advantage_vs_matched_s2": 5.562478529962177,
+        "bppps_zero_over_avg": 0.9640525190975261,
+        "s2_zero_over_avg": 0.7579581920978633
+      }
+    ],
+    "1.0": [
+      {
+        "n_layers": 2,
+        "n_2q": 96,
+        "bppps_infid_avg": 0.0674531105592423,
+        "matched_s2_infid_avg": 0.017281431517933044,
+        "advantage_vs_matched_s2": 0.2561991785798405,
+        "bppps_zero_over_avg": 0.6817833636262881,
+        "s2_zero_over_avg": 0.6206746109820779
+      },
+      {
+        "n_layers": 3,
+        "n_2q": 144,
+        "bppps_infid_avg": 0.002628376399034238,
+        "matched_s2_infid_avg": 0.0032269063994151415,
+        "advantage_vs_matched_s2": 1.2277185263879349,
+        "bppps_zero_over_avg": 0.93559948977545,
+        "s2_zero_over_avg": 0.6281609374281851
+      },
+      {
+        "n_layers": 4,
+        "n_2q": 192,
+        "bppps_infid_avg": 0.0005824564405007004,
+        "matched_s2_infid_avg": 0.001000808769017092,
+        "advantage_vs_matched_s2": 1.7182551336487255,
+        "bppps_zero_over_avg": 0.9687719836746196,
+        "s2_zero_over_avg": 0.6309655414276898
+      },
+      {
+        "n_layers": 5,
+        "n_2q": 240,
+        "bppps_infid_avg": 0.00019074267942453815,
+        "matched_s2_infid_avg": 0.0004061341693922804,
+        "advantage_vs_matched_s2": 2.129225460277524,
+        "bppps_zero_over_avg": 0.9681370059974049,
+        "s2_zero_over_avg": 0.6322938003010395
+      },
+      {
+        "n_layers": 6,
+        "n_2q": 288,
+        "bppps_infid_avg": 8.549698842152953e-05,
+        "matched_s2_infid_avg": 0.0001948690502685535,
+        "advantage_vs_matched_s2": 2.2792504609376665,
+        "bppps_zero_over_avg": 0.9721073413102813,
+        "s2_zero_over_avg": 0.6330230609599771
+      }
+    ],
+    "2.0": [
+      {
+        "n_layers": 2,
+        "n_2q": 192,
+        "bppps_infid_avg": 0.15481146077920604,
+        "matched_s2_infid_avg": 0.04156183639226285,
+        "advantage_vs_matched_s2": 0.268467438929078,
+        "bppps_zero_over_avg": 0.6363514391683449,
+        "s2_zero_over_avg": 0.580169981624881
+      },
+      {
+        "n_layers": 3,
+        "n_2q": 288,
+        "bppps_infid_avg": 0.006568108083602753,
+        "matched_s2_infid_avg": 0.007856932148851303,
+        "advantage_vs_matched_s2": 1.1962245518562786,
+        "bppps_zero_over_avg": 0.9668598825574024,
+        "s2_zero_over_avg": 0.5853315512110046
+      },
+      {
+        "n_layers": 4,
+        "n_2q": 384,
+        "bppps_infid_avg": 0.0014869123599087208,
+        "matched_s2_infid_avg": 0.0024421395852097794,
+        "advantage_vs_matched_s2": 1.642423353962636,
+        "bppps_zero_over_avg": 0.9996143339625551,
+        "s2_zero_over_avg": 0.5878177366390798
+      },
+      {
+        "n_layers": 5,
+        "n_2q": 480,
+        "bppps_infid_avg": 0.00048480314098142685,
+        "matched_s2_infid_avg": 0.0009917046651722883,
+        "advantage_vs_matched_s2": 2.0455821782934387,
+        "bppps_zero_over_avg": 1.0118364075487485,
+        "s2_zero_over_avg": 0.5890765497669691
+      },
+      {
+        "n_layers": 6,
+        "n_2q": 576,
+        "bppps_infid_avg": 0.00021964780929695227,
+        "matched_s2_infid_avg": 0.000475967539936506,
+        "advantage_vs_matched_s2": 2.1669578288077664,
+        "bppps_zero_over_avg": 1.0062521029914866,
+        "s2_zero_over_avg": 0.5897879021809599
+      }
+    ]
+  }
+}

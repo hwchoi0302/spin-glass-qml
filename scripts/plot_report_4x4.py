@@ -366,29 +366,39 @@ def fig_depth():
         ax.plot([p[0] for p in pts], [p[2] for p in pts], 'D', color=C_HVA,
                 ms=12, lw=0, zorder=6, mec='black', mew=1.0,
                 label='BP-PPS HVA block, composed')
-        for d, q, y, lab in pts:
-            ax.annotate(lab, xy=(d, y), xytext=(-13, -2),
+        # Stagger above/below rather than left/right: the points sit on a
+        # steeply falling line, so consecutive labels collide horizontally
+        # (L=5 and L=6 at T=0.5) but have room vertically.
+        for i, (d, q, y, lab) in enumerate(sorted(pts, key=lambda t: t[0])):
+            up = i % 2 == 0
+            ax.annotate(lab, xy=(d, y), xytext=(0, 13 if up else -14),
                         textcoords='offset points', fontsize=9.5, color=C_HVA,
-                        fontweight='bold', ha='right', va='center')
+                        fontweight='bold', ha='center',
+                        va='bottom' if up else 'top')
 
-        # The matched-gate-count pair: same 2Q, so within 1 layer of same depth.
-        l3 = next((p for p in pts if p[3] == 'L=3'), None)
-        if l3 is not None:
-            match = [(d, y) for d, y in zip(curves['grouped S2']['d'],
-                                            curves['grouped S2']['y'])
-                     if abs(d - 1 - l3[0]) < 1e-9]
+        # The matched-gate-count advantage across the whole layer sweep.
+        #
+        # This used to quote L=3 alone, because L=3 was the deepest block that
+        # existed. With L=4,5,6 trained the shape of the result is the L trend,
+        # not any single point: quoting L=3 now understates it by 2x at
+        # T=2.0 (1.20x against L=6's 2.17x) and hides the only thing this
+        # figure is here to decide -- whether the advantage grows with depth.
+        adv = []
+        for d, q, y, lab in sorted(pts, key=lambda t: t[0]):
+            match = [(dd, yy) for dd, yy in zip(curves['grouped S2']['d'],
+                                                curves['grouped S2']['y'])
+                     if abs(dd - 1 - d) < 1e-9]
             if match:
-                d2, y2 = match[0]
-                ax.annotate('at %d 2Q (depth %g vs %g):\nBP-PPS %.2fx more accurate'
-                            % (l3[1], l3[0], d2, y2 / l3[2]),
-                            xy=(l3[0], l3[2]), xytext=(0.04, 0.20),
-                            textcoords='axes fraction', fontsize=8.5,
-                            color='#333', ha='left', va='top',
-                            bbox=dict(boxstyle='round,pad=0.3', fc='white',
-                                      ec='#BBBBBB', lw=0.8, alpha=0.93),
-                            arrowprops=dict(arrowstyle='->', color='#666',
-                                            lw=1.1,
-                                            connectionstyle='arc3,rad=-0.25'))
+                adv.append((int(lab.split('=')[1]), q, d, match[0][1] / y))
+        if adv:
+            ax.text(0.03, 0.46,
+                    'BP-PPS vs grouped $S_2$, equal 2Q:\n'
+                    + '\n'.join('  $L$=%d (%d 2Q):  %.2fx' % (a[0], a[1], a[3])
+                                for a in adv),
+                    transform=ax.transAxes, fontsize=8.0, color='#333',
+                    ha='left', va='top', linespacing=1.35,
+                    bbox=dict(boxstyle='round,pad=0.35', fc='white',
+                              ec='#BBBBBB', lw=0.8, alpha=0.93))
         ax.set_xscale('log')
         ax.set_yscale('log')
         ax.set_xlabel('scheduled circuit depth')
@@ -404,12 +414,13 @@ def fig_depth():
     axes[0].legend(fontsize=8.5, loc='upper right')
 
     fig.suptitle('Accuracy per unit depth, scored on random product states '
-                 'rather than $|0\\ldots0\\rangle$.  BP-PPS wins at all three '
-                 'times, by a shrinking margin.\nDepth $=5\\times$(2Q$/24$) for '
-                 'every circuit here, so this is also the gate-count figure — '
-                 'depth is not a second axis.',
-                 fontsize=11.5, y=0.995)
-    fig.tight_layout(rect=[0, 0, 1, 0.88])
+                 'rather than $|0\\ldots0\\rangle$.\n'
+                 'The advantage over gate-matched $S_2$ grows with $L$ at '
+                 'every time and shrinks with $T$; $L$=2 loses at all three.\n'
+                 'Depth $=5\\times$(2Q$/24$) for every circuit here, so this '
+                 'is also the gate-count figure — depth is not a second axis.',
+                 fontsize=11, y=0.99)
+    fig.tight_layout(rect=[0, 0, 1, 0.90])
     p = os.path.join(OUT, 'report_depth_fidelity.png')
     fig.savefig(p, dpi=150, facecolor='white')
     print('wrote', p)
