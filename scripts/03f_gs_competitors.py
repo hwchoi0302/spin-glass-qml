@@ -1,4 +1,12 @@
-"""Goal 3 under FTQC assumptions: HVA vs adiabatic Trotter vs QAOA.
+"""Goal 3 under FTQC assumptions: HVA vs adiabatic Trotter vs VQE.
+
+Naming (owner's decision, 2026-09-03): the 2-angles-per-layer route is called
+VQE in every document and figure, not QAOA. It has QAOA's circuit shape, but
+what it minimises is the energy of the transverse-field H, whose ground state
+is entangled -- textbook QAOA minimises a diagonal cost function whose ground
+state is a bitstring. The JSON key written below is still `qaoa`, because that
+is what the committed runs wrote and data files are not edited after the fact:
+**key `qaoa` == the VQE row of the documents.**
 
 Hardware error is assumed away, so the only currency is *algorithmic*: how many
 2-qubit gates does each route need to reach a given ground-state energy? All
@@ -9,14 +17,14 @@ count is comparing at equal 2Q gate count. That is what makes the comparison
 fair; the routes differ only in how the angles are chosen.
 
     HVA        L layers, L*(n+|bonds|) free angles, energy minimised
-    QAOA       p layers, 2p free angles (all RX in a layer share beta, all RZZ
+    VQE        p layers, 2p free angles (all RX in a layer share beta, all RZZ
                share gamma scaled by its own J_b), energy minimised
     adiabatic  M Trotter steps of H(s) = (1-s)(-Gamma sum X) + s H, angles
                fixed by the schedule, nothing optimised
 
-QAOA is a strict sub-family of HVA (the same circuit with angles tied), so
-HVA >= QAOA holds by construction and is not a result. It is measured anyway
-because the interesting question is the *price* of the tying: QAOA has 40x
+VQE here is a strict sub-family of HVA (the same circuit with angles tied), so
+HVA >= VQE holds by construction and is not a result. It is measured anyway
+because the interesting question is the *price* of the tying: VQE has 40x
 fewer parameters at 4x4, which is what decides whether it can be trained at
 100 qubits at all.
 
@@ -87,7 +95,7 @@ def energy_of(psi, bonds, J, h, n, patterns):
 # ============================================================================
 
 def qaoa_angles(gamma_beta, n_layers, n, J, n_bonds):
-    """Expand 2p QAOA angles into the L*(n+|bonds|) HVA layout.
+    """Expand the 2p VQE angles into the L*(n+|bonds|) HVA layout.
 
     Layer l applies exp(-i beta_l sum_q X_q) then exp(+i gamma_l sum_b J_b Z Z),
     i.e. every RX in the layer shares one angle and every RZZ is that layer's
@@ -103,7 +111,7 @@ def qaoa_angles(gamma_beta, n_layers, n, J, n_bonds):
 
 
 def qaoa_cost_grad(gamma_beta, plan, psi0, bonds, J, h, n, patterns, n_layers):
-    """Energy and gradient in the 2p QAOA parameters, by chain rule."""
+    """Energy and gradient in the 2p VQE parameters, by chain rule."""
     n_bonds = len(bonds)
     theta = qaoa_angles(gamma_beta, n_layers, n, J, n_bonds)
     energy, grad_theta = pilot.energy_cost_grad(
@@ -174,7 +182,7 @@ def run_hva(model, plan_for, patterns, psi0, layers, max_seconds, e0, psi_gs):
 
 
 def run_qaoa(model, plan_for, patterns, psi0, depths, max_seconds, e0, psi_gs):
-    print("\n--- QAOA (2p angles, structurally a sub-family of HVA) ---")
+    print("\n--- VQE (2p angles, structurally a sub-family of HVA) ---")
     print(f"{'p':>3} {'2Q':>5} {'params':>7} {'energy':>12} {'dE':>10} "
           f"{'F0':>8} {'s':>7}")
     out = {}

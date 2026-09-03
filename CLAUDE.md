@@ -20,7 +20,17 @@ quantum computation. QMC returns classical bitstrings drawn from
 "QMC circuit". So QMC is goal 3's **reference value**, not its competitor — it
 supplies the energy the device is checked against. The competitors are the
 other ways to get that state into a register (Trotterised adiabatic, QITE,
-QAOA), and against those the claim is **circuit depth**.
+VQE), and against those the claim is **circuit depth**.
+
+**Naming (owner's decision, 2026-09-03).** The 2-angles-per-layer competitor is
+called **VQE**, never QAOA: it has QAOA's circuit shape but minimises the energy
+of the transverse-field `H`, whose ground state is entangled, where textbook
+QAOA minimises a diagonal cost whose ground state is a bitstring. The key in
+`results/4x4/gs_competitors.json` is still `qaoa` — data files are not edited
+after the fact — so **key `qaoa` == the VQE row**. Our own ansatz keeps the name
+**HVA** even though its per-bond parameterisation is the literature's
+multi-angle QAOA; the same name is already used on the time-evolution side and
+splitting it per goal would confuse more than it fixes.
 
 This is deliberately *not* a classical-intractability claim. The model is
 stoquastic for every `J`, so QMC samples the ground state without a sign
@@ -78,7 +88,7 @@ Update that file at the end of a session so the next one starts warm.
    ties sorted-cupy 0.53 s — which is why the CPU engine is what training
    uses. Target generation at 1.2M terms is on the winning side and is the
    open GPU question. The comparison models' statevector is also measured
-   now: 3.5–6.6× for the HVA/QAOA gradient, 5.4–5.8× for the batched
+   now: 3.5–6.6× for the HVA/VQE gradient, 5.4–5.8× for the batched
    adiabatic scan. Full reasoning: `docs/issues/03-engine-performance.md`.
 6. `scripts/00_validate_small.py` must print `ALL 21 TESTS PASSED` before any
    result from a run is trusted. TEST 20 skipping (no CUDA device) is a pass.

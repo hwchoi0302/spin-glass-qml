@@ -8,8 +8,9 @@ committed JSON in ``results/4x4/``:
                                statevector ceiling
   report_goal2_hardness.png    anticoncentration, entanglement, and the
                                hardware-total trade-off between L=2 and L=3
-  report_goal3_layers.png      ground-state layer sweep with the measured
-                               BP-PPS point on top of the ceiling
+  report_goal3_layers.png      ground state at equal 2Q cost: adiabatic
+                               Trotter, VQE (2 angles/layer) and the HVA
+                               ceiling, with the deployable BP-PPS point
 
 Run:  .venv/bin/python scripts/plot_report_4x4.py
 """
@@ -196,7 +197,14 @@ def fig_goal2():
 
 
 # --------------------------------------------------------------------------
-# Figure 3 -- goal 3: the three routes into the register, at equal 2Q cost
+# Figure 3 -- goal 3: the routes into the register, at equal 2Q cost
+#
+# Naming (owner's decision, 2026-09-03): the 2-angles-per-layer competitor is
+# labelled VQE, not QAOA. It minimises the energy of the transverse-field H,
+# whose ground state is entangled, rather than a diagonal cost function whose
+# ground state is a bitstring -- so it is a VQE that happens to use QAOA's
+# circuit shape. The JSON key in gs_competitors.json is still `qaoa`, because
+# that is what the run wrote; only the reader-facing label changed.
 # --------------------------------------------------------------------------
 def _hva_ceiling():
     """Best statevector optimum of the HVA at each L, over both runs that made one.
@@ -213,11 +221,17 @@ def _hva_ceiling():
     optimality; both are lower bounds on what the ansatz can do, so the ceiling
     drawn here is the better of the two at each L, and which run supplied it is
     recorded in `src`.
+
+    L > 8 exists only in the 300 s run and comes out worse than L=8, which is
+    the time cap rather than the ansatz. Those points are dropped rather than
+    drawn: a retrained L=10 will replace them.
     """
     comp = load('gs_competitors.json')['hva']
     pilot = load('statevector_pilot.json')['ground_state']
     out = {}
     for L in sorted({int(k) for k in comp} | {int(k) for k in pilot}):
+        if L > 8:
+            continue
         cands = []
         if str(L) in comp:
             cands.append((comp[str(L)]['gap'], comp[str(L)]['fidelity'], '03f'))
@@ -229,7 +243,7 @@ def _hva_ceiling():
 
 
 def _monotone(g, y):
-    """Running minimum: drop points that a capped optimiser made non-monotone."""
+    """Running minimum, so a capped optimiser cannot make the curve turn back."""
     keep, best = [], np.inf
     for gi, yi in zip(g, y):
         if yi < best:
@@ -259,9 +273,9 @@ def fig_goal3():
     every bond -- so one layer is 24 two-qubit gates whichever route drew it,
     and matching layer count is matching 2Q count. They differ only in what
     fixes the angles: nothing (adiabatic schedule), 2 free angles per layer
-    (QAOA), or 40 (HVA, which is multi-angle QAOA's parameterisation).
+    (VQE), or 40 (HVA).
 
-    Two things on this figure are measured rather than argued, and one is not:
+    Two things here are measured rather than argued, and one is not:
 
       measured    the adiabatic curve, re-derived independently to 1.5e-14
       measured    BP-PPS L=3: its angles evaluate to -21.999320 on the
@@ -269,8 +283,13 @@ def fig_goal3():
       NOT         that the anneal is a strong opponent. It is a linear
                   schedule with no counterdiabatic term, and the leading CD
                   term is a 1-qubit rotation, i.e. free in this figure's own
-                  currency. RUNBOOK 2-6 measures it; until then the ratios
-                  here are upper bounds on the advantage over an anneal.
+                  currency. RUNBOOK 2-6 measures it; until then the ratio
+                  drawn here is an upper bound on the advantage over an anneal.
+
+    The BP-PPS L=5 marker is an aborted run: killed inside L-BFGS-B after 41 h
+    with only Adam finished, so it is a lower bound on an unfinished
+    optimisation, and it has no fidelity because the angles were discarded with
+    the abort.
     """
     comp = load('gs_competitors.json')
     ceil = _hva_ceiling()
@@ -281,66 +300,69 @@ def fig_goal3():
     e_gap_ed = comp['ed_first_excited'] - comp['ed_ground_energy']
 
     ad = sorted(comp['adiabatic'].values(), key=lambda r: r['n_2q'])
-    qa = sorted(comp['qaoa'].values(), key=lambda r: r['n_2q'])
+    vq = sorted(comp['qaoa'].values(), key=lambda r: r['n_2q'])
     ad_g = np.array([r['n_2q'] for r in ad], float)
     ad_dE = np.array([r['gap'] for r in ad])
     ad_F = np.array([r['fidelity'] for r in ad])
-    qa_g = np.array([r['n_2q'] for r in qa], float)
-    qa_dE = np.array([r['gap'] for r in qa])
-    qa_F = np.array([r['fidelity'] for r in qa])
+    vq_g = np.array([r['n_2q'] for r in vq], float)
+    vq_dE = np.array([r['gap'] for r in vq])
+    vq_F = np.array([r['fidelity'] for r in vq])
 
-    # HVA: L<=8 is the ceiling proper; L=10,12 exist only in the 300 s run and
-    # come out *worse* than L=8, which is the cap, not the ansatz.
     hv_L = sorted(ceil)
-    conv = [L for L in hv_L if L <= 8]
-    capped = [L for L in hv_L if L > 8]
-    hv_g = np.array([ceil[L]['n_2q'] for L in conv], float)
-    hv_dE = np.array([ceil[L]['gap'] for L in conv])
-    hv_F = np.array([ceil[L]['fidelity'] for L in conv])
+    hv_g = np.array([ceil[L]['n_2q'] for L in hv_L], float)
+    hv_dE = np.array([ceil[L]['gap'] for L in hv_L])
+    hv_F = np.array([ceil[L]['fidelity'] for L in hv_L])
 
-    C_QAOA = '#00897b'
-    fig, axes = plt.subplots(1, 3, figsize=(16.5, 4.9))
+    # The advantage is read off the curves, not typed in: how many 2Q gates
+    # does each competitor need for the energy BP-PPS actually reached?
+    bp_dE = val['energy_gap']
+    ad_at_bp, ad_ex = _gates_for(ad_g, ad_dE, bp_dE)
+    vq_at_bp, vq_ex = _gates_for(vq_g, vq_dE, bp_dE)
+    assert not (ad_ex or vq_ex), 'the deployable point left the measured range'
+    ratio_ad = ad_at_bp / (BONDS_4X4 * 3)
+    ratio_vq = vq_at_bp / (BONDS_4X4 * 3)
+
+    C_VQE = '#00897b'
+    fig, axes = plt.subplots(1, 2, figsize=(12.4, 5.0))
 
     # ---------------------------------------------------------------- (a)
     ax = axes[0]
     ax.plot(ad_g, ad_dE, '-s', color=C_TROT, lw=1.8, ms=5,
             label='adiabatic Trotter ($M$=2..100, no CD)')
-    ax.plot(qa_g, qa_dE, '-^', color=C_QAOA, lw=1.8, ms=6,
-            label='QAOA ($p$=1..12, 2 angles/layer)')
+    ax.plot(vq_g, vq_dE, '-^', color=C_VQE, lw=1.8, ms=6,
+            label='VQE ($p$=1..12, 2 angles/layer)')
     ax.plot(hv_g, hv_dE, '-o', color=C_CEIL, lw=1.8, ms=6,
             label='HVA statevector ceiling (40 angles/layer)')
-    ax.plot([ceil[L]['n_2q'] for L in capped], [ceil[L]['gap'] for L in capped],
-            'o', mfc='none', mec=C_CEIL, ms=6, lw=0,
-            label='HVA, optimiser hit the 300 s cap')
-    ax.plot([BONDS_4X4 * 3], [val['energy_gap']], 'D', color=C_HVA, ms=13,
-            zorder=6, mec='white', mew=1.5, label='BP-PPS trained, deployable')
+    ax.plot([BONDS_4X4 * 3], [bp_dE], 'D', color=C_HVA, ms=13,
+            zorder=6, mec='white', mew=1.5, label='BP-PPS ($L$=3)')
     if l5 is not None:
         ax.plot([BONDS_4X4 * 5], [l5['gap_to_E0']], 'D', color='#F57C00', ms=12,
-                zorder=6, mec='black', mew=1.0, label='BP-PPS $L$=5 (aborted)')
+                zorder=6, mec='black', mew=1.0, label='BP-PPS ($L$=5)')
     ax.axhline(e_gap_ed, color=C_REF, ls=':', lw=1.3)
     ax.text(700, e_gap_ed * 1.2, f'ED gap $E_1-E_0$ = {e_gap_ed:.3f}',
             fontsize=8, color=C_REF)
-    ax.annotate('', xy=(72, val['energy_gap']), xytext=(1081, val['energy_gap']),
+    ax.annotate('', xy=(BONDS_4X4 * 3, bp_dE), xytext=(ad_at_bp, bp_dE),
                 arrowprops=dict(arrowstyle='<->', color='#444', lw=1.2))
-    ax.text(330, val['energy_gap'] * 0.50, '15.0x fewer 2Q gates\nfor the same energy',
+    ax.text(330, bp_dE * 0.50,
+            f'{ratio_ad:.1f}x fewer 2Q gates\nfor the same energy',
             fontsize=9, color='#444', ha='center', fontweight='bold',
             bbox=dict(fc='white', ec='none', alpha=0.85, pad=1.5))
     ax.set_xscale('log')
     ax.set_yscale('log')
+    ax.set_ylim(6e-3, 12)
     ax.set_xlabel('2Q gate count  (4x4, 24 per layer)')
     ax.set_ylabel('energy above exact ground state  $E-E_0$')
-    ax.set_ylim(6e-3, 12)
     ax.set_title('(a) Accuracy per two-qubit gate', fontsize=12)
-    ax.legend(fontsize=7.4, loc='upper right', framealpha=0.97)
+    handles, labels = ax.get_legend_handles_labels()
     style(ax)
 
     # ---------------------------------------------------------------- (b)
     ax = axes[1]
-    ax.plot(ad_g, ad_F, '-s', color=C_TROT, lw=1.8, ms=5, label='adiabatic Trotter')
-    ax.plot(qa_g, qa_F, '-^', color=C_QAOA, lw=1.8, ms=6, label='QAOA')
-    ax.plot(hv_g, hv_F, '-o', color=C_CEIL, lw=1.8, ms=6, label='HVA ceiling')
+    ax.plot(ad_g, ad_F, '-s', color=C_TROT, lw=1.8, ms=5)
+    ax.plot(vq_g, vq_F, '-^', color=C_VQE, lw=1.8, ms=6)
+    ax.plot(hv_g, hv_F, '-o', color=C_CEIL, lw=1.8, ms=6)
     ax.plot([BONDS_4X4 * 3], [val['gs_fidelity']], 'D', color=C_HVA, ms=13,
-            zorder=6, mec='white', mew=1.5, label='BP-PPS trained ($L$=3)')
+            zorder=6, mec='white', mew=1.5)
     ax.axhline(0.5, color=C_REF, ls=':', lw=1.3)
     ax.text(30, 0.52, 'parity ceiling if started from $|0\\ldots0\\rangle$',
             fontsize=8, color=C_REF)
@@ -351,51 +373,22 @@ def fig_goal3():
     ax.set_ylabel('ground-state fidelity  $F_0$')
     ax.set_ylim(0, 1.05)
     ax.set_title('(b) Overlap with the true ground state', fontsize=12)
-    ax.legend(fontsize=8, loc='center right')
     style(ax)
 
-    # ---------------------------------------------------------------- (c)
-    ax = axes[2]
-    targets = np.geomspace(2.0, 0.02, 60)
-    for g, y, col, lab in ((qa_g, qa_dE, C_QAOA, 'QAOA / HVA'),
-                           (ad_g, ad_dE, C_TROT, 'adiabatic / HVA')):
-        solid_x, solid_y, dash_x, dash_y = [], [], [], []
-        for t in targets:
-            num, num_ex = _gates_for(g, y, t)
-            den, den_ex = _gates_for(hv_g, hv_dE, t)
-            if num is None or den is None:
-                continue
-            (dash_x if (num_ex or den_ex) else solid_x).append(t)
-            (dash_y if (num_ex or den_ex) else solid_y).append(num / den)
-        ax.plot(solid_x, solid_y, '-', color=col, lw=2.4, label=lab + '  (measured)')
-        ax.plot(dash_x, dash_y, '--', color=col, lw=1.8, alpha=0.75,
-                label=lab + '  (extrapolated)')
-    ax.plot([val['energy_gap']], [15.0], 'D', color=C_HVA, ms=11, zorder=6,
-            mec='white', mew=1.4)
-    ax.plot([val['energy_gap']], [1.79], 'D', color=C_HVA, ms=11, zorder=6,
-            mec='white', mew=1.4)
-    ax.annotate('what BP-PPS actually\ndelivers today: 72 2Q',
-                xy=(val['energy_gap'], 15.0), xytext=(1.6, 3.0),
-                fontsize=8.5, color='#444', ha='center',
-                arrowprops=dict(arrowstyle='->', color='#888', lw=1))
-    ax.axhline(1.0, color=C_REF, ls=':', lw=1.3)
-    ax.set_xscale('log')
-    ax.set_yscale('log')
-    ax.invert_xaxis()
-    ax.set_xlabel('target accuracy  $E-E_0$   (harder to the right)')
-    ax.set_ylabel('2Q gates needed, relative to HVA')
-    ax.set_title('(c) The advantage grows with accuracy', fontsize=12)
-    ax.legend(fontsize=7.6, loc='upper left')
-    style(ax)
+    # One legend for both panels, below them: panel (a) is a descending fan
+    # with no empty corner, and an inset box hid either the anneal tail or the
+    # HVA tail depending on which corner it went to.
+    fig.legend(handles, labels, loc='lower center', ncol=5, fontsize=9,
+               frameon=False, bbox_to_anchor=(0.5, 0.0))
 
     fig.suptitle(
         'Goal 3 — three routes to the same deliverable, priced in two-qubit gates\n'
-        'Deployable today: BP-PPS $L$=3, 72 2Q, $E-E_0$=0.473 — 15.0x fewer gates than the anneal, '
-        '1.8x fewer than QAOA, both read inside the measured range\n'
+        f'Deployable today: BP-PPS $L$=3, 72 2Q, $E-E_0$={bp_dE:.3f} — {ratio_ad:.1f}x fewer gates '
+        f'than the anneal, {ratio_vq:.1f}x fewer than VQE, both read inside the measured range\n'
         'Caveat: the anneal is a linear schedule with no counterdiabatic term, and the leading CD term '
-        'is a 1-qubit rotation, i.e. free in this figure\'s own currency (RUNBOOK 2-6)',
+        "is a 1-qubit rotation, i.e. free in this figure's own currency (RUNBOOK 2-6)",
         fontsize=10, y=0.995)
-    fig.tight_layout(rect=[0, 0, 1, 0.9])
+    fig.tight_layout(rect=[0, 0.07, 1, 0.87])
     p = os.path.join(OUT, 'report_goal3_layers.png')
     fig.savefig(p, dpi=150, facecolor='white')
     print('wrote', p)
