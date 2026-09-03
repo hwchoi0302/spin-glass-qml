@@ -22,11 +22,11 @@
 
 | 파일 | 주제 | 지금 상태 |
 |:--|:--|:--|
-| [01-scale-plan.md](01-scale-plan.md) | 규모별 시뮬레이션 (T1 → T1-T → T2 → T3) | **진행 중** — T=0.5 층 스윕 + QAOA (실행 대기열 참고) |
+| [01-scale-plan.md](01-scale-plan.md) | 규모별 시뮬레이션 (T1 → T1-T → T2 → T3) | **진행 중** — 대기열 1a(`T=0.5` 층 스윕)가 **코드 수정 2건에 막혀 있음**. 그대로 돌리면 7시간을 버립니다 |
 | [02-comparison-models.md](02-comparison-models.md) | 비교 모델, 고전 기준선, 무엇을 주장할 수 있나 | 목표 3 경쟁자는 측정됨, T2/T3 는 보류 |
 | [03-engine-performance.md](03-engine-performance.md) | 비트패킹, 정렬병합, GPU, Julia, 메모리, 타겟 캐시 | **진행 중** — GPU 판정 완료((a)(b) 아니오, (c) 미측정), 비트단위 동일 수정 3건 반영 |
 | [04-hardware-deployment.md](04-hardware-deployment.md) | IBM Nighthawk 배포, 오차 예산, Phase 4 | 미착수 |
-| [05-writing.md](05-writing.md) | report.tex / report.md, 주장 문구 관리 | 상시 |
+| [05-writing.md](05-writing.md) | report.tex / report.md, 주장 문구 관리 | 상시. **"결론 문장 작성 요령"이 RUNBOOK 에서 이리로 옮겨왔습니다** |
 
 ## 갈래를 나눌 때의 기준
 

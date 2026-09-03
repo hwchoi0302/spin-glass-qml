@@ -18,7 +18,7 @@ This directory contains the simulation outputs, exact diagonalization benchmarks
 > fidelity 0.5), and the adaptive truncation now actually fires, so BP-PPS
 > lands on the statevector optimum of its own ansatz to 5e-6. The residual
 > 0.4729 gap to $E_0$ is the **3-layer ansatz**, not the training: the aborted
-> $L=5$ run reaches 0.2796. See [RUNBOOK §1.5](../../docs/RUNBOOK.md) for the
+> $L=5$ run reaches 0.2796. See [RUNBOOK §2](../../docs/RUNBOOK.md) for the
 > commands and
 > [issues/01-scale-plan.md](../../docs/issues/01-scale-plan.md) for the
 > evidence.
