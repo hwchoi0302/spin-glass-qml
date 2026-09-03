@@ -1,0 +1,20 @@
+{
+  "what": "Forward propagation cost of all four engines on the workload the trainer actually runs: observable X_5, the production L=3 trained angles, delta=1e-6.",
+  "why": "results/4x4/gpu_benchmark.json part A compares sorted-numpy against sorted-cupy. It never compares either against the string-dict engine that src/bppps/trainer.py imports, so it does not say what training would gain. This does.",
+  "observable": "X_5",
+  "angles": "results/4x4/trained_params.json (L=3 production)",
+  "delta": 1e-06,
+  "n_terms": 396896,
+  "engines": {
+    "string_dict": {"seconds": 8.72, "speedup": 1.0, "used_by_trainer": true},
+    "numba":        {"seconds": 1.29, "speedup": 6.78, "used_by_trainer": false},
+    "sorted_numpy": {"seconds": 0.50, "speedup": 17.33, "used_by_trainer": false},
+    "sorted_cupy":  {"seconds": 0.53, "speedup": 16.34, "used_by_trainer": false}
+  },
+  "caveat": "Forward only. propagate_backward has no numba/sorted/cupy port at all, and the adjoint is the larger half: at L=3 production angles a full gradient evaluation over 32 observables measured 40.1 s forward against 84.1 s backward. Wiring the trainer to a faster engine therefore requires writing the adjoint for it; the forward speedup alone caps out at about 1.5x on the whole step.",
+  "term_count_is_angle_sensitive": {
+    "note": "The evolved SPO size depends steeply on angle magnitude, so any cost estimate taken at warm-start angles is meaningless.",
+    "small_random_angles_L3": {"mean_terms": 680, "gradient_eval_seconds": 0.9},
+    "production_angles_L3": {"mean_terms": 69914, "gradient_eval_seconds": 124.2}
+  }
+}
