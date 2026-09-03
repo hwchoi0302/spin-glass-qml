@@ -20,9 +20,14 @@ This measures the average over Haar-random single-qubit product states of
 second-order Trotter at matched 2Q gate counts. Same states for every circuit,
 so the comparison is paired.
 
+The BP-PPS block only exists at dt = 0.5, so any T here must be a whole number
+of blocks and the block is composed that many times. --T 1.0 scores
+U(theta;0.5)^2 at 2*24*L gates, not one block at half the time.
+
 Usage:
     python scripts/03g_state_averaged.py
     python scripts/03g_state_averaged.py --n-states 40 --T 0.5
+    python scripts/03g_state_averaged.py --T 1.0 --out results/4x4/state_averaged_T1.0.json
 """
 import argparse
 import importlib.util
@@ -111,6 +116,10 @@ def apply_grouped_s4(psi, T, steps, n, bonds, J, h, patterns):
     return psi
 
 
+# The BP-PPS time-evolution block is trained at this chunk size.
+BLOCK_DT = 0.5
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--n-states', type=int, default=32)
@@ -145,6 +154,16 @@ def main():
           f"{'infid 평균':>12} {'비율':>8}")
     print("  " + "-" * 68)
 
+    # The BP-PPS block is trained at dt = 0.5 only; longer times are reached by
+    # composing it, U(theta; 0.5)^k. Applying it once at T = 1.0 would score a
+    # half-time circuit against a full-time target and report a spurious
+    # failure, so k is derived from T here rather than assumed to be 1.
+    if abs(T / BLOCK_DT - round(T / BLOCK_DT)) > 1e-9:
+        raise SystemExit(
+            f"T={T} is not a whole number of {BLOCK_DT} blocks; the BP-PPS "
+            f"circuit only exists at multiples of the trained chunk.")
+    k = int(round(T / BLOCK_DT))
+
     rows = []
     for fname, L in (('trained_params.json', 3), ('te_trained_params_L2.json', 2)):
         path = os.path.join(ROOT, 'results/4x4', fname)
@@ -153,8 +172,14 @@ def main():
         rec = json.load(open(path))
         th = np.asarray(rec.get('params', rec.get('optimized_params')))
         plan = plan_for(L)
-        rows.append(score(lambda p, th=th, pl=plan: apply_hva(p, th, pl, n, patterns),
-                          f"BP-PPS HVA L={L}", 24 * L))
+
+        def composed(psi, th=th, pl=plan, k=k):
+            for _ in range(k):
+                psi = apply_hva(psi, th, pl, n, patterns)
+            return psi
+
+        lab = f"BP-PPS HVA L={L}" if k == 1 else f"BP-PPS HVA L={L}, k={k}"
+        rows.append(score(composed, lab, 24 * L * k))
 
     for steps in (2, 3, 4, 6, 8, 12, 16):
         rows.append(score(

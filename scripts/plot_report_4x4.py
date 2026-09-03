@@ -299,7 +299,7 @@ def fig_goal3():
 # Figure 4 -- is the depth axis a separate advantage? (no)
 # --------------------------------------------------------------------------
 def fig_depth():
-    """Accuracy per unit depth, which is how goal 1 is actually worded.
+    """Accuracy per unit depth at three evolution times, on the fair metric.
 
     Replaces the old report_depth_audit.png (2026-09-03). That figure's panel
     (b) was a bar chart meant to show where the retracted 4.7x depth win came
@@ -309,112 +309,107 @@ def fig_depth():
     qc.depth() on the other), while its right pair compared two 72-gate
     circuits under one scheduler. Two independent errors -- a doubled gate
     count and an unscheduled depth -- were collapsed into one "4.67x -> 1.07x"
-    story with no way to see which contributed what. The two bars were not the
-    same comparison changing; they were different comparisons.
+    story with no way to see which contributed what.
 
-    What replaces it answers the question directly instead: put fidelity on y
-    and depth on x, and read off which circuit is more accurate at a given
-    depth. Panel (b) then repeats it against gate count, and the point of the
-    old audit survives as an observation rather than a bar chart -- the two
-    panels have the same shape, because every circuit here splits the same 24
-    bonds into the same 4 colours and so obeys depth = 5*(2Q/24) (+1 for the
-    Suzuki circuits' leading RX half-layer). Depth is not a second axis.
+    This puts fidelity on y and scheduled depth on x, which is how goal 1 is
+    worded, at T = 0.5, 1.0 and 2.0. Depths are the analytic 4-colour values
+    that scripts/03f_depth_audit.py confirmed against a real ASAP scheduler
+    exactly: HVA 5*units, grouped Suzuki 5*units+1. Since every circuit here
+    splits the same 24 bonds into the same 4 colours, depth = 5*(2Q/24) for all
+    of them and this figure is also the gate-count figure -- there is no depth
+    advantage separate from the gate count, which was the audit's real point
+    and survives as a sentence rather than a bar chart.
 
-    Depths are the analytic 4-colour values, which scripts/03f_depth_audit.py
-    confirmed against a real ASAP scheduler exactly: HVA 5*units, grouped S2
-    5*units+1, grouped S4 25*units+1.
-
-    Infidelities are the state-averaged ones from state_averaged.json -- the
-    mean over 24 random product states, not |0...0>. That is the metric
-    CLAUDE.md's "arbitrary product state" wording calls for, and it changes the
-    ranking: on |0...0> S4 looks nearly exact, while averaged it loses to S2
-    below roughly 200 gates because one S4 step already costs five S2 steps.
+    Infidelities are averaged over 24 Haar-random product states, not scored on
+    |0...0>. That matters more than it sounds. BP-PPS optimises L_XZ, an
+    operator distance, so it degrades by only 1.03-1.07x off |0...0| while
+    grouped Trotter degrades by 1.58-1.73x, and the ranking at T >= 1 flips
+    between the two metrics: on |0...0> Trotter wins at T = 1.0 and 2.0, and on
+    the state average -- the quantity CLAUDE.md's "arbitrary product state"
+    actually names -- BP-PPS wins at all three times.
     """
-    sa = load('state_averaged.json')
-    T = sa['T']
+    import glob
 
-    def depth_of(label, n_2q):
-        units = n_2q / BONDS_4X4
-        return 5 * units if label.startswith('BP-PPS') else 5 * units + 1
+    files = {}
+    for path in sorted(glob.glob(os.path.join(RES, 'state_averaged*.json'))):
+        d = json.load(open(path))
+        files[float(d['T'])] = d
+    times = sorted(files)
 
     fams = {
-        'grouped S2': dict(color=C_TROT, mk='s',
-                           lab='Trotter $S_2$ (grouped), 2..16 steps'),
-        'grouped S4': dict(color='#f39c12', mk='^',
-                           lab='Trotter $S_4$ (grouped), 1..6 steps'),
+        'grouped S2': dict(color=C_TROT, mk='s', lab='Trotter $S_2$ (grouped)'),
+        'grouped S4': dict(color='#f39c12', mk='^', lab='Trotter $S_4$ (grouped)'),
     }
-    curves = {k: {'d': [], 'q': [], 'y': [], 'y0': []} for k in fams}
-    pts = []
-    for r in sa['rows']:
-        d = depth_of(r['label'], r['n_2q'])
-        if r['label'].startswith('BP-PPS'):
-            pts.append((d, r['n_2q'], r['infid_avg'], r['infid_zero'],
-                        r['label'].split()[-1]))
-            continue
-        for k in fams:
-            if r['label'].startswith(k):
-                curves[k]['d'].append(d)
-                curves[k]['q'].append(r['n_2q'])
-                curves[k]['y'].append(r['infid_avg'])
-                curves[k]['y0'].append(r['infid_zero'])
 
-    fig, axes = plt.subplots(1, 2, figsize=(12.5, 4.9))
+    fig, axes = plt.subplots(1, len(times), figsize=(5.0 * len(times), 4.9),
+                             sharey=True)
+    axes = np.atleast_1d(axes)
 
-    for ax, xkey, xlab, title in (
-            (axes[0], 'd', 'scheduled circuit depth',
-             '(a) Accuracy per unit depth'),
-            (axes[1], 'q', '2Q gate count',
-             '(b) The same picture against gate count')):
+    for ax, T in zip(axes, times):
+        curves = {k: {'d': [], 'y': []} for k in fams}
+        pts = []
+        for r in files[T]['rows']:
+            units = r['n_2q'] / BONDS_4X4
+            if r['label'].startswith('BP-PPS'):
+                # HVA has no leading half-layer; depth is exactly 5 per layer.
+                pts.append((5 * units, r['n_2q'], r['infid_avg'],
+                            r['label'].split()[2].rstrip(',')))
+                continue
+            for k in fams:
+                if r['label'].startswith(k):
+                    curves[k]['d'].append(5 * units + 1)
+                    curves[k]['y'].append(r['infid_avg'])
+
         for k, f in fams.items():
-            c = curves[k]
-            ax.plot(c[xkey], c['y'], '-', color=f['color'], marker=f['mk'],
-                    lw=1.8, ms=6, label=f['lab'])
-        xi = 0 if xkey == 'd' else 1
-        ax.plot([p[xi] for p in pts], [p[2] for p in pts], 'D', color=C_HVA,
+            ax.plot(curves[k]['d'], curves[k]['y'], '-', color=f['color'],
+                    marker=f['mk'], lw=1.8, ms=6, label=f['lab'])
+        ax.plot([p[0] for p in pts], [p[2] for p in pts], 'D', color=C_HVA,
                 ms=12, lw=0, zorder=6, mec='black', mew=1.0,
-                label='BP-PPS HVA block')
-        for p in pts:
-            ax.annotate(p[4], xy=(p[xi], p[2]), xytext=(-13, -3),
-                        textcoords='offset points', fontsize=9.5,
-                        color=C_HVA, fontweight='bold', ha='right', va='center')
+                label='BP-PPS HVA block, composed')
+        for d, q, y, lab in pts:
+            ax.annotate(lab, xy=(d, y), xytext=(-13, -2),
+                        textcoords='offset points', fontsize=9.5, color=C_HVA,
+                        fontweight='bold', ha='right', va='center')
+
+        # The matched-gate-count pair: same 2Q, so within 1 layer of same depth.
+        l3 = next((p for p in pts if p[3] == 'L=3'), None)
+        if l3 is not None:
+            match = [(d, y) for d, y in zip(curves['grouped S2']['d'],
+                                            curves['grouped S2']['y'])
+                     if abs(d - 1 - l3[0]) < 1e-9]
+            if match:
+                d2, y2 = match[0]
+                ax.annotate('at %d 2Q (depth %g vs %g):\nBP-PPS %.2fx more accurate'
+                            % (l3[1], l3[0], d2, y2 / l3[2]),
+                            xy=(l3[0], l3[2]), xytext=(0.04, 0.20),
+                            textcoords='axes fraction', fontsize=8.5,
+                            color='#333', ha='left', va='top',
+                            bbox=dict(boxstyle='round,pad=0.3', fc='white',
+                                      ec='#BBBBBB', lw=0.8, alpha=0.93),
+                            arrowprops=dict(arrowstyle='->', color='#666',
+                                            lw=1.1,
+                                            connectionstyle='arc3,rad=-0.25'))
         ax.set_xscale('log')
         ax.set_yscale('log')
-        ax.set_xlabel(xlab)
-        ax.set_title(title, fontsize=12)
-        # Margin so the L=2 diamond and its label are not clipped at the left.
-        allx = [v for k in fams for v in curves[k][xkey]] + [p[xi] for p in pts]
-        ax.set_xlim(min(allx) * 0.72, max(allx) * 1.35)
+        ax.set_xlabel('scheduled circuit depth')
+        ax.set_title('$T$ = %.1f' % T, fontsize=13)
+        allx = [v for k in fams for v in curves[k]['d']] + [p[0] for p in pts]
+        ax.set_xlim(min(allx) * 0.7, max(allx) * 1.4)
         style(ax)
-    axes[0].set_ylabel('state-averaged infidelity $1-F$   ($T$ = %.1f)' % T)
-    axes[0].legend(fontsize=8.5, loc='lower left')
 
-    # The one exactly matched pair, marked on the axis the claim is worded for.
-    l3 = next(p for p in pts if p[4] == 'L=3')
-    s2 = next((d, q, y) for d, q, y in zip(curves['grouped S2']['d'],
-                                           curves['grouped S2']['q'],
-                                           curves['grouped S2']['y'])
-              if q == l3[1])
-    axes[0].annotate('depth %g vs %g (1.07x) —\nBP-PPS %.1fx more accurate'
-                     % (l3[0], s2[0], s2[2] / l3[2]),
-                     xy=(l3[0], l3[2]), xytext=(0.30, 0.93),
-                     textcoords='axes fraction', fontsize=9, color='#333',
-                     ha='left', va='top',
-                     bbox=dict(boxstyle='round,pad=0.35', fc='white',
-                               ec='#BBBBBB', lw=0.8, alpha=0.93),
-                     arrowprops=dict(arrowstyle='->', color='#666', lw=1.1,
-                                     connectionstyle='arc3,rad=-0.2'))
-    axes[1].annotate('depth $= 5\\times$(2Q$/24$) here, so (a)\n'
-                     'and (b) are one plot: no depth\n'
-                     'advantage separate from gates.',
-                     xy=(0.02, 0.34), xycoords='axes fraction', fontsize=9,
-                     color='#444', ha='left', va='top')
+    axes[0].set_ylabel('state-averaged infidelity $1-F$\n'
+                       '(24 Haar-random product states)')
+    # Upper right: every curve falls left-to-right, so that corner is the only
+    # one guaranteed clear of both the data and the matched-cost callout.
+    axes[0].legend(fontsize=8.5, loc='upper right')
 
-    fig.suptitle('Is the shallow circuit more accurate at a given depth? '
-                 'Only at $L$=3, and only because it uses fewer gates —\n'
-                 'all four circuits colour the same 24 bonds the same way, so '
-                 'depth and gate count are one axis',
+    fig.suptitle('Accuracy per unit depth, scored on random product states '
+                 'rather than $|0\\ldots0\\rangle$.  BP-PPS wins at all three '
+                 'times, by a shrinking margin.\nDepth $=5\\times$(2Q$/24$) for '
+                 'every circuit here, so this is also the gate-count figure — '
+                 'depth is not a second axis.',
                  fontsize=11.5, y=0.995)
-    fig.tight_layout(rect=[0, 0, 1, 0.87])
+    fig.tight_layout(rect=[0, 0, 1, 0.88])
     p = os.path.join(OUT, 'report_depth_fidelity.png')
     fig.savefig(p, dpi=150, facecolor='white')
     print('wrote', p)

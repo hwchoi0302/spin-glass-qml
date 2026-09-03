@@ -1,0 +1,91 @@
+{
+  "T": 2.0,
+  "n_states": 24,
+  "seed": 11,
+  "rows": [
+    {
+      "label": "BP-PPS HVA L=3, k=4",
+      "n_2q": 288,
+      "infid_zero": 0.006350440210336261,
+      "infid_avg": 0.006568108083602753
+    },
+    {
+      "label": "BP-PPS HVA L=2, k=4",
+      "n_2q": 192,
+      "infid_zero": 0.09851449586660133,
+      "infid_avg": 0.15481146077920604
+    },
+    {
+      "label": "grouped S2, 2 steps",
+      "n_2q": 48,
+      "infid_zero": 0.9999746150685525,
+      "infid_avg": 0.999971902795254
+    },
+    {
+      "label": "grouped S2, 3 steps",
+      "n_2q": 72,
+      "infid_zero": 0.9355626525337134,
+      "infid_avg": 0.9869277640494865
+    },
+    {
+      "label": "grouped S2, 4 steps",
+      "n_2q": 96,
+      "infid_zero": 0.4339654168969084,
+      "infid_avg": 0.652427395901209
+    },
+    {
+      "label": "grouped S2, 6 steps",
+      "n_2q": 144,
+      "infid_zero": 0.07932512165983874,
+      "infid_avg": 0.13708538932575343
+    },
+    {
+      "label": "grouped S2, 8 steps",
+      "n_2q": 192,
+      "infid_zero": 0.024112929855995224,
+      "infid_avg": 0.041561836392263074
+    },
+    {
+      "label": "grouped S2, 12 steps",
+      "n_2q": 288,
+      "infid_zero": 0.004598910282446744,
+      "infid_avg": 0.007856932148851414
+    },
+    {
+      "label": "grouped S2, 16 steps",
+      "n_2q": 384,
+      "infid_zero": 0.0014355329635349356,
+      "infid_avg": 0.0024421395852097794
+    },
+    {
+      "label": "grouped S4, 1 steps",
+      "n_2q": 120,
+      "infid_zero": 0.997594524026749,
+      "infid_avg": 0.9981122273592264
+    },
+    {
+      "label": "grouped S4, 2 steps",
+      "n_2q": 240,
+      "infid_zero": 0.7115427120426776,
+      "infid_avg": 0.7493691849085449
+    },
+    {
+      "label": "grouped S4, 3 steps",
+      "n_2q": 360,
+      "infid_zero": 0.16827274689384697,
+      "infid_avg": 0.19398028878438656
+    },
+    {
+      "label": "grouped S4, 4 steps",
+      "n_2q": 480,
+      "infid_zero": 0.010312416638655009,
+      "infid_avg": 0.014320707956109513
+    },
+    {
+      "label": "grouped S4, 6 steps",
+      "n_2q": 720,
+      "infid_zero": 5.9074544519810424e-05,
+      "infid_avg": 0.00010145300094988041
+    }
+  ]
+}
