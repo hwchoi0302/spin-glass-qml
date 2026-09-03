@@ -22,8 +22,8 @@
 
 | 파일 | 주제 | 지금 상태 |
 |:--|:--|:--|
-| [01-scale-plan.md](01-scale-plan.md) | 규모별 시뮬레이션 (T1 → T1-T → T2 → T3) | **진행 중** — T1-T stage 1 |
-| [02-comparison-models.md](02-comparison-models.md) | 비교 모델, 고전 기준선, 무엇을 주장할 수 있나 | 보류 (T2/T3용) |
+| [01-scale-plan.md](01-scale-plan.md) | 규모별 시뮬레이션 (T1 → T1-T → T2 → T3) | **진행 중** — T=0.5 층 스윕 + QAOA (실행 대기열 참고) |
+| [02-comparison-models.md](02-comparison-models.md) | 비교 모델, 고전 기준선, 무엇을 주장할 수 있나 | 목표 3 경쟁자는 측정됨, T2/T3 는 보류 |
 | [03-engine-performance.md](03-engine-performance.md) | 비트패킹, Julia, 메모리, 타겟 캐시 형식 | 대기 — 7×7 진입 전 필수 |
 | [04-hardware-deployment.md](04-hardware-deployment.md) | IBM Nighthawk 배포, 오차 예산, Phase 4 | 미착수 |
 | [05-writing.md](05-writing.md) | report.tex / report.md, 주장 문구 관리 | 상시 |
