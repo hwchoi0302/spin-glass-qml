@@ -251,11 +251,16 @@ def main():
     ap.add_argument('--lattice', type=int, default=4)
     ap.add_argument('--max-seconds', type=float, default=120.0)
     ap.add_argument('--gamma-driver', type=float, default=1.0)
+    # Sweeping the disorder realisation is the point of the mechanism
+    # experiment: the claim is that HVA's per-bond angles absorb disorder that
+    # a schedule cannot, so its advantage over the anneal should widen as the
+    # E1-E0 gap closes. That needs several seeds on the same lattice.
+    ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--out', default=None)
     args = ap.parse_args()
 
     L = args.lattice
-    model = SpinGlass2D(L, L, h=1.0, coupling_type='ea_bimodal', seed=42)
+    model = SpinGlass2D(L, L, h=1.0, coupling_type='ea_bimodal', seed=args.seed)
     n = model.num_qubits
     print(f"{L}x{L}, {n} qubits, {model.num_bonds} bonds "
           f"({model.num_bonds} 2Q gates per layer)")
@@ -276,6 +281,7 @@ def main():
 
     res = {
         'lattice': f"{L}x{L}", 'n_qubits': n, 'n_bonds': model.num_bonds,
+        'seed': args.seed,
         'ed_ground_energy': e0, 'ed_first_excited': e1,
         'gamma_driver': args.gamma_driver,
         'adiabatic': run_adiabatic(model, plan_for, patterns, psi0,
@@ -287,8 +293,9 @@ def main():
                        args.max_seconds, e0, psi_gs),
     }
 
+    suffix = '' if args.seed == 42 else f'_seed{args.seed}'
     out = args.out or os.path.join(ROOT, 'results', f'{L}x{L}',
-                                   'gs_competitors.json')
+                                   f'gs_competitors{suffix}.json')
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, 'w') as f:
         json.dump(res, f, indent=2)
