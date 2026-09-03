@@ -809,6 +809,115 @@ def test_20_gpu_engine_matches_string_engine():
     print("  ✅ PASSED\n")
 
 
+def test_21_sorted_backward_matches_string_engine():
+    """The sorted-array gradient equals the string engine's, and both equal a
+    central difference of the loss they claim to differentiate.
+
+    TESTs 17-20 only ever check *forward* propagation, and until 2026-09-03 a
+    backward pass on the sorted arrays did not exist -- BP-PPS training ran
+    entirely on the string-dict engine. Since the backward pass is the larger
+    half of a gradient evaluation (measured 15.2 s against 6.5 s forward at
+    the production L=3 angles), it is also the half worth getting wrong
+    quietly, so this pins it against two independent references rather than
+    one.
+
+    The loss must not be the SPO norm. Seeding with dL/da_P = 2 a_P makes the
+    loss the norm, which Heisenberg propagation conserves exactly, so every
+    gradient is identically zero and any implementation "passes". A fixed
+    random target is used instead.
+    """
+    print("=" * 60)
+    print("TEST 21: sorted-array backward pass matches the string engine")
+    print("=" * 60)
+    from bppps.propagation import (TruncationStats, propagate_forward,
+                                   propagate_backward)
+    from bppps.propagation_sorted import (propagate_backward_sorted,
+                                          to_sorted_arrays)
+    from bppps.propagation_packed import label_to_xz
+
+    def packed_key(label):
+        x, z = label_to_xz(label)
+        return np.uint64(np.uint64(x) | (np.uint64(z) << np.uint64(32)))
+
+    worst_engine = worst_fd = worst_eps = 0.0
+    for trial in range(9):
+        rng = np.random.default_rng(1000 + trial)
+        n = int(rng.integers(3, 7))
+        n_gates = int(rng.integers(20, 70))
+        n_params = 6
+        p0 = rng.normal(0, 0.7, n_params)
+        delta = [0.0, 1e-10, 1e-6][trial % 3]
+
+        spec = []
+        for _ in range(n_gates):
+            if rng.random() < 0.5:
+                spec.append(('rx', int(rng.integers(n)), int(rng.integers(n_params))))
+            else:
+                i, j = rng.choice(n, 2, replace=False)
+                spec.append(('rzz', int(i), int(j), int(rng.integers(n_params))))
+
+        def make(p):
+            out = []
+            for g in spec:
+                if g[0] == 'rx':
+                    out.append(('rx', g[1], float(p[g[2]]), g[2]))
+                else:
+                    out.append(('rzz', g[1], g[2], float(p[g[3]]), g[3]))
+            return out
+
+        label = 'X' + 'I' * (n - 1)
+        seq = make(p0)
+        evolved = propagate_forward({label: 1.0}, seq, delta, TruncationStats())
+        target = {P: float(rng.normal(0, 0.3)) for P in evolved}
+
+        def loss(p):
+            ev = propagate_forward({label: 1.0}, make(p), delta,
+                                   TruncationStats())
+            return sum((ev.get(P, 0.0) - target.get(P, 0.0)) ** 2
+                       for P in set(ev) | set(target))
+
+        seed = {P: 2.0 * (c - target.get(P, 0.0)) for P, c in evolved.items()}
+        stats_str = TruncationStats()
+        g_str = propagate_backward(evolved, seed, seq, n_params, delta,
+                                   stats_str)
+
+        keys, coeffs = to_sorted_arrays(
+            {label_to_xz(P): c for P, c in evolved.items()})
+        lam_by_key = {packed_key(P): v for P, v in seed.items()}
+        lam = np.array([lam_by_key[np.uint64(k)] for k in keys])
+        stats_srt = TruncationStats()
+        g_srt = propagate_backward_sorted(keys, coeffs, lam, seq, n_params,
+                                          delta, np, stats_srt)
+
+        h = 1e-6
+        basis = np.eye(n_params)
+        g_fd = np.array([(loss(p0 + h * basis[i]) - loss(p0 - h * basis[i]))
+                         / (2 * h) for i in range(n_params)])
+
+        scale = max(1e-12, float(np.max(np.abs(g_str))))
+        d_engine = float(np.max(np.abs(g_str - g_srt))) / scale
+        d_fd = float(np.max(np.abs(g_str - g_fd))) / scale
+        d_eps = abs(stats_str.error_estimate - stats_srt.error_estimate)
+        worst_engine = max(worst_engine, d_engine)
+        worst_fd = max(worst_fd, d_fd)
+        worst_eps = max(worst_eps, d_eps)
+
+        print(f"  n={n}, {n_gates} gates, delta={delta:.0e}, "
+              f"{len(evolved):,} terms: sorted-vs-string {d_engine:.2e}, "
+              f"string-vs-central-diff {d_fd:.2e}, d(eps_emp) {d_eps:.2e}")
+
+        assert d_engine < 1e-12, \
+            f"sorted backward disagrees with the string engine: {d_engine:.3e}"
+        assert d_fd < 1e-5, \
+            f"string backward disagrees with central differences: {d_fd:.3e}"
+        assert d_eps < 1e-12, \
+            f"eps_emp differs between engines: {d_eps:.3e}"
+
+    print(f"  worst: engine {worst_engine:.2e}, finite difference "
+          f"{worst_fd:.2e}, eps_emp {worst_eps:.2e}")
+    print("  ✅ PASSED\n")
+
+
 if __name__ == '__main__':
     test_1_ferromagnetic()
     test_2_pauli_op_consistency()
@@ -830,7 +939,8 @@ if __name__ == '__main__':
     test_18_numba_engine_matches_string_engine()
     test_19_sorted_engine_matches_string_engine()
     test_20_gpu_engine_matches_string_engine()
+    test_21_sorted_backward_matches_string_engine()
 
     print("=" * 60)
-    print("ALL 20 TESTS PASSED ✅ (18 skips without numba, 20 without a GPU)")
+    print("ALL 21 TESTS PASSED ✅ (18 skips without numba, 20 without a GPU)")
     print("=" * 60)

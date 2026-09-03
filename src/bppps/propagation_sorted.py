@@ -48,12 +48,22 @@ MASK32 = np.uint64(0xFFFFFFFF)
 
 
 def to_sorted_arrays(packed: dict, xp=np):
-    """{(x,z): coeff} -> (sorted keys array, aligned coeffs array)."""
+    """{(x,z): coeff} -> (sorted keys array, aligned coeffs array).
+
+    Sorted by the *packed key*, not by the (x, z) tuple. Those two orders are
+    different -- the key puts z in the high 32 bits, so it orders by z first,
+    while tuple order goes by x first -- and getting it wrong returns an array
+    that is not sorted at all, which silently breaks every searchsorted in
+    this module. The only in-tree caller used to be self_check() with a single
+    term, where any order is sorted, so nothing caught it.
+    """
     if not packed:
         return xp.zeros(0, dtype=xp.uint64), xp.zeros(0, dtype=xp.float64)
-    items = sorted(packed.items())
-    keys = xp.asarray([np.uint64(x) | (np.uint64(z) << np.uint64(32))
-                       for (x, z), _ in items], dtype=xp.uint64)
+    items = sorted(
+        ((np.uint64(x) | (np.uint64(z) << np.uint64(32)), c)
+         for (x, z), c in packed.items()),
+        key=lambda kc: int(kc[0]))
+    keys = xp.asarray([k for k, _ in items], dtype=xp.uint64)
     coeffs = xp.asarray([c for _, c in items], dtype=xp.float64)
     return keys, coeffs
 
@@ -253,3 +263,186 @@ if __name__ == '__main__':
     for seed in range(3):
         self_check(seed=seed, n=6, n_gates=150)
     print("ALL SORTED-ARRAY EQUIVALENCE CHECKS PASSED")
+
+
+# ===========================================================================
+# Backward pass
+# ===========================================================================
+#
+# propagate_backward is what BP-PPS training actually spends its time in --
+# measured at the production L=3 angles with delta=1e-6, one gradient
+# evaluation over the 32 observables was 40.1 s forward against 84.1 s
+# backward -- and until now it existed only in propagation.py's string-dict
+# form. Porting the forward pass alone therefore capped the achievable speedup
+# at about 1.5x; this is the other two thirds.
+#
+# The backward pass carries a second array beside the coefficients: the
+# co-state lam_P = dL/da_P, which BP-PPS's Eq. 20 rotates by the same U(-theta)
+# as the coefficients. The key domain is shared, which is what lets both live
+# on one sorted key array: propagate_backward starts from adjoint = seed with
+# seed a subset of the evolved SPO, and every step writes a lam entry only
+# where the corresponding coefficient survived truncation, so
+# adjoint.keys() is a subset of coeffs.keys() for the whole walk. The string
+# engine's union over `coeffs.keys() | adjoint.keys()` is therefore just
+# coeffs.keys(), and one (keys, a, lam) triple loses nothing.
+#
+# Why the gradient carries a factor of one half. propagation.py accumulates
+#
+#     grad += sign(P) * (lam_P * a_R - lam_R * a_P)
+#
+# once per {P, R} pair, which it enforces with a `processed` set -- a
+# sequential construct with no array form. It does not need one: R differs
+# from P only at the flipped bit, so sign(R) = -sign(P), and the bracket also
+# changes sign under the swap, leaving the product invariant. Summing the same
+# expression over every key in the union counts each pair exactly twice, so
+# half the union sum is the same number with no pairing logic at all. This is
+# the same argument the module docstring makes for the forward update rule.
+
+
+def _backward_gate_sorted(keys, a, lam, flip, anti, sign_of,
+                          cos_t, sin_t, thresh, xp):
+    """One inverse gate step shared by RX and RZZ.
+
+    Args:
+        keys: Sorted uint64 Pauli keys.
+        a: Coefficients, parallel to ``keys``.
+        lam: Co-state dL/da, parallel to ``keys``.
+        flip: uint64 mask turning a key into its partner under this gate.
+        anti: Boolean mask, True where the key anticommutes with the generator.
+        sign_of: Callable mapping an array of keys to their +-1 signs.
+        cos_t, sin_t: cos/sin of the gate angle.
+        thresh: Truncation threshold, applied to the coefficient magnitude.
+        xp: numpy or cupy.
+
+    Returns:
+        (keys, a, lam, gradient, discarded_sum_sq, n_discarded)
+    """
+    if keys.shape[0] == 0:
+        return keys, a, lam, 0.0, 0.0, 0
+
+    commute = ~anti
+    ck, ca, cl = keys[commute], a[commute], lam[commute]
+
+    anti_keys = keys[anti]
+    if anti_keys.shape[0] == 0:
+        union_keys = anti_keys
+        new_a = a[anti]
+        new_l = lam[anti]
+        gradient = 0.0
+    else:
+        union_keys = _union_sorted(anti_keys, anti_keys ^ flip, xp)
+        partner_keys = union_keys ^ flip
+
+        a_self = _lookup(keys, a, union_keys, xp)
+        a_part = _lookup(keys, a, partner_keys, xp)
+        l_self = _lookup(keys, lam, union_keys, xp)
+        l_part = _lookup(keys, lam, partner_keys, xp)
+        sign = sign_of(union_keys)
+
+        # Eq. 21, on the post-gate values, before the inverse rotation.
+        # Half the union sum -- see the note above.
+        gradient = 0.5 * float(xp.sum(sign * (l_self * a_part - l_part * a_self)))
+
+        # Eqs. 11 / 20: the inverse rotation U(-theta), applied per key. Doing
+        # it independently for a key and its partner reproduces propagation.py's
+        # paired (new_P, new_R) update because sign(R) = -sign(P).
+        new_a = cos_t * a_self - sign * sin_t * a_part
+        new_l = cos_t * l_self - sign * sin_t * l_part
+
+    out_keys = xp.concatenate([ck, union_keys])
+    out_a = xp.concatenate([ca, new_a])
+    out_l = xp.concatenate([cl, new_l])
+
+    # Joint truncation: keyed on the coefficient, dropping its co-state with
+    # it, exactly as propagation._backward_rx does.
+    keep = xp.abs(out_a) > thresh
+    dropped = out_a[~keep]
+    disc_sq = float(xp.sum(dropped * dropped)) if dropped.shape[0] else 0.0
+    n_disc = int(dropped.shape[0])
+
+    out_keys, out_a, out_l = out_keys[keep], out_a[keep], out_l[keep]
+    order = _argsort(out_keys, xp)
+    return (out_keys[order], out_a[order], out_l[order],
+            gradient, disc_sq, n_disc)
+
+
+def backward_rx_sorted(keys, a, lam, qubit: int, theta: float, thresh: float,
+                       xp=np):
+    """Inverse RX step. See :func:`_backward_gate_sorted`."""
+    kbit = xp.uint64(1) << xp.uint64(qubit)
+    z = (keys >> xp.uint64(32)) & MASK32
+    anti = (z & kbit) != xp.uint64(0)
+    # P[k] == 'Y' (x-bit set) -> +1, P[k] == 'Z' -> -1, matching
+    # propagation._backward_rx's sign.
+    sign_of = lambda k: xp.where((k & kbit) != xp.uint64(0), 1.0, -1.0)
+    return _backward_gate_sorted(keys, a, lam, kbit, anti, sign_of,
+                                 float(np.cos(theta)), float(np.sin(theta)),
+                                 thresh, xp)
+
+
+def backward_rzz_sorted(keys, a, lam, qi: int, qj: int, theta: float,
+                        thresh: float, xp=np):
+    """Inverse RZZ step. See :func:`_backward_gate_sorted`."""
+    ibit = xp.uint64(1) << xp.uint64(qi)
+    jbit = xp.uint64(1) << xp.uint64(qj)
+    m_hi = (ibit | jbit) << xp.uint64(32)
+    x = keys & MASK32
+    anti = ((x & ibit) != xp.uint64(0)) != ((x & jbit) != xp.uint64(0))
+
+    def sign_of(k):
+        kx = k & MASK32
+        kz = (k >> xp.uint64(32)) & MASK32
+        anti_bit = xp.where((kx & ibit) != xp.uint64(0), ibit, jbit)
+        # X at the anticommuting site -> +1, Y -> -1.
+        return xp.where((kz & anti_bit) != xp.uint64(0), -1.0, 1.0)
+
+    return _backward_gate_sorted(keys, a, lam, m_hi, anti, sign_of,
+                                 float(np.cos(theta)), float(np.sin(theta)),
+                                 thresh, xp)
+
+
+def propagate_backward_sorted(keys, a, lam, gate_sequence, n_params: int,
+                              delta: float = 0.0, xp=np,
+                              stats: Optional["object"] = None):
+    """Gradients for every trainable parameter, on the sorted-array engine.
+
+    Walks the gates in **circuit order**, the opposite of
+    :func:`propagate_forward_sorted` -- hard rule 3 in CLAUDE.md, and a real
+    bug once (commit e9c3b50).
+
+    Args:
+        keys, a: Evolved SPO from the forward pass, sorted.
+        lam: Gradient seed dL/da on the same key domain (zero where the seed
+            has no entry).
+        gate_sequence: The same sequence the forward pass used, circuit order.
+        n_params: Length of the gradient vector.
+        delta: Truncation threshold for the backward reconstruction.
+        xp: numpy or cupy.
+        stats: Optional TruncationStats to accumulate discarded weight into.
+
+    Returns:
+        numpy array of shape (n_params,).
+    """
+    thresh = max(delta, 1e-15)
+    gradients = np.zeros(n_params)
+
+    for gate in gate_sequence:
+        if gate[0] == 'rx':
+            _, q, theta, pidx = gate
+            keys, a, lam, grad, dsq, ndisc = backward_rx_sorted(
+                keys, a, lam, q, theta, thresh, xp)
+        elif gate[0] == 'rzz':
+            _, qi, qj, theta, pidx = gate
+            keys, a, lam, grad, dsq, ndisc = backward_rzz_sorted(
+                keys, a, lam, qi, qj, theta, thresh, xp)
+        else:
+            continue
+
+        if pidx >= 0:
+            gradients[pidx] += grad
+        if stats is not None:
+            stats.sum_sq += dsq
+            stats.n_discarded += ndisc
+            stats.n_gates += 1
+
+    return gradients

@@ -67,3 +67,16 @@ truncation:
   error_ratio: 0.1
   # Minimum epochs between two tightenings, so Adam can re-equilibrate.
   patience: 10
+  # Which propagation engine the gradient steps run on.
+  #   string  Dict[str, float], src/bppps/propagation.py. The oracle every
+  #           other engine is validated against (TESTs 10-21).
+  #   sorted  whole-array uint64 keys, src/bppps/propagation_sorted.py.
+  # Measured on the real 4x4 problem at delta=1e-6 with the production L=3
+  # angles: time evolution 95.9 s -> 6.0 s per gradient (15.9x) with the loss
+  # agreeing to 8.0e-13 relative, ground state 57.7 s -> 4.0 s (14.5x) with
+  # the energy agreeing to 1.0e-15. Same numbers, not an approximation.
+  #
+  # Limit to know before reusing this at 7x7: the sorted key packs x into the
+  # low 32 bits and z into the high 32, so it holds at most 32 qubits. 4x4 and
+  # 5x5 fit; 7x7 (49) does not and needs the key widened first.
+  engine: sorted

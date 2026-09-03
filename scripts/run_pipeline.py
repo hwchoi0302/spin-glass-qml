@@ -232,6 +232,7 @@ def _make_trainer(config, model, mode, **kwargs):
         adaptive_delta=trunc['adaptive'], delta_factor=trunc['factor'],
         error_ratio=trunc['error_ratio'], patience=trunc['patience'],
         lambda_ose=config['optimizer'].get('lambda_ose', 0.0),
+        engine=trunc.get('engine', 'string'),
         mode=mode, **kwargs,
     )
 
