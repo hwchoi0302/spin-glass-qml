@@ -8,6 +8,7 @@
 > [issues/01-scale-plan.md](issues/01-scale-plan.md) 에 결과와 함께 남아 있고,
 > 이 문서는 앞으로 **"지금 돌릴 것"만** 담습니다.
 
+- **4×4 결과 종합: [status_4x4.md](status_4x4.md)**
 - 배경과 연구 논지: [benchmark_plan.md](benchmark_plan.md)
 - 코드·설정 레퍼런스: [manual.md](manual.md)
 - 4×4 결과와 그림: [results_4x4.md](results_4x4.md)
@@ -371,14 +372,24 @@ python scripts/03f_gs_competitors.py --lattice 4 --max-seconds 1200
 
 ## 3. 결과를 어디에 적는가
 
-숫자와 파일은 커밋하고, **판단은 `docs/issues/01-scale-plan.md` 에** 적습니다.
-세션이 끝나기 전에 그 파일의 `실행 대기열` / `다음 행동` / `열린 질문` 을
-갱신하세요. 다음 세션은 그것만 읽고 시작합니다.
+숫자와 파일은 커밋하고, **판단은 주제 파일에** 적습니다. 세션이 끝나기 전에
+담당 파일의 `지금 상태` / `실행 대기열` / `열린 질문` 을 갱신하세요.
+다음 세션은 그것만 읽고 시작합니다.
+
+| 무엇 | 어디에 |
+|:--|:--|
+| 4×4 의 목표 달성도, 인용할 숫자 | **`docs/status_4x4.md`** |
+| 실행 판단, 규모 계획 | `docs/issues/01-scale-plan.md` |
+| 경쟁자·주장 범위 | `docs/issues/02-comparison-models.md` |
+| 엔진·성능·GPU | `docs/issues/03-engine-performance.md` |
+| 문구·그림·논문 골격 | `docs/issues/05-writing.md` |
 
 여러 파일에 걸치는 결정(게이트 순서 규약, 비트패킹 전환 시점 같은 것)만
 `CLAUDE.md` 에 한 줄로 올립니다.
 
----
+> 날짜별 서술은 **쌓지 마세요.** `01`·`03`·`05` 가 그렇게 2,000줄 넘게 자라
+> 2026-09-03 에 `docs/issues/archive/` 로 걷어냈습니다. 새 사실이 옛 결론을
+> 뒤집으면 **옛 문단을 고치세요.** 밑에 새 절을 붙이지 말고.
 
 ## 4. 문제 발생 시
 

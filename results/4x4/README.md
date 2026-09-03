@@ -11,7 +11,7 @@ This directory contains the simulation outputs, exact diagonalization benchmarks
 > | Time evolution ($t=0.5$) fidelity vs ED | 0.99918 |
 > | Ground state (3 layers, from `\|+...+>`) | $E=-21.9993$, gap to $E_0$ 0.4729 |
 > | Ground state `\|BP-PPS - statevector\|` | 5e-6 (truncation estimate 1.43e-3) |
-> | `scripts/00_validate_small.py` | must print ALL 20 TESTS PASSED |
+> | `scripts/00_validate_small.py` | must print ALL 21 TESTS PASSED |
 >
 > Both of the gaps this note used to list are closed. The ground state is now
 > trained from `|+...+>` (the parity of $\prod_i X_i$ caps `|0...0>` at
