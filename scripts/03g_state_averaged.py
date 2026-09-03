@@ -198,13 +198,26 @@ def main():
         lab = f"BP-PPS HVA L={L}" if k == 1 else f"BP-PPS HVA L={L}, k={k}"
         rows.append(score(composed, lab, 24 * L * k))
 
-    for steps in (2, 3, 4, 6, 8, 12, 16):
+    # The fixed sweep, plus one gate-matched opponent for every BP-PPS row
+    # that was actually scored. A layer is 24 2Q gates and a grouped-S2 step is
+    # 24 as well, so the matched step count is exactly L*k -- and the old fixed
+    # tuple (2, 3, 4, 6, 8, 12, 16) has no 5, 10, 20 or 24 in it, which left
+    # L=5 with no opponent at any T (120, 240, 480 2Q) and L=6 with none at
+    # T=2.0 (576 2Q). A BP-PPS point with nothing at its own gate count cannot
+    # be judged at all, which is the whole purpose of this table. Deriving the
+    # list means the next layer count added upstream cannot reopen this gap.
+    matched = {L * k for L in found}
+    for steps in sorted({2, 3, 4, 6, 8, 12, 16} | matched):
         rows.append(score(
             lambda p, m=steps: apply_grouped_s2(p, T, m, n, model.bonds,
                                                 model.J, model.h, patterns),
             f"grouped S2, {steps} steps", 24 * steps))
 
-    for steps in (1, 2, 3, 4, 6):
+    # S4 costs 5 grouped-S2 substeps per step, so it lands on a coarser grid:
+    # it matches a BP-PPS point only when L*k is a multiple of 5. Those are
+    # added where they exist; the rest of the S4 curve stays a sweep.
+    s4_matched = {L * k // 5 for L in found if (L * k) % 5 == 0}
+    for steps in sorted({1, 2, 3, 4, 6} | s4_matched):
         rows.append(score(
             lambda p, m=steps: apply_grouped_s4(p, T, m, n, model.bonds,
                                                 model.J, model.h, patterns),
