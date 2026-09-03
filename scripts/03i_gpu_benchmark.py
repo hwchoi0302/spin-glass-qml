@@ -18,7 +18,7 @@ were wrong with it beyond the contention:
 
 It also measures the workload the earlier benchmark never looked at, which is
 the one with the best case for a GPU: the *statevector* the comparison models
-run on (Trotter, QAOA, adiabatic). That kernel is fixed-shape, branch-free
+run on (Trotter, VQE, adiabatic). That kernel is fixed-shape, branch-free
 and 1 MB, i.e. the opposite of Pauli propagation in every way that matters,
 and 03f_gs_competitors.py is wall-clock-budgeted rather than
 iteration-budgeted -- so throughput there buys competitor-curve quality, not
@@ -148,7 +148,7 @@ def part_prop(cp, max_terms, out):
 
 
 # ============================================================================
-# Part B -- statevector (the comparison models: Trotter, QAOA, adiabatic)
+# Part B -- statevector (the comparison models: Trotter, VQE, adiabatic)
 # ============================================================================
 #
 # Backend-generic copies of 03_statevector_pilot.py's primitives. They are not
@@ -249,7 +249,7 @@ def part_sv(cp, out):
         print(f"  cupy vs numpy:           |dE| = {abs(e_mine - e_g):.3e}, "
               f"max |dgrad| = {float(np.max(np.abs(g_mine - g_g))):.3e}")
 
-    print("\n  B1. HVA / QAOA -- optimised, so wall-clock-capped. The layer")
+    print("\n  B1. HVA / VQE -- optimised, so wall-clock-capped. The layer")
     print("      list is 03f_gs_competitors.py's own: [1..6, 8, 10, 12].")
     print(f"\n{'L':>4} {'2Q':>6} {'gates':>7} {'tape MB':>9} "
           f"{'numpy':>11} {'cupy':>11} {'speedup':>9} {'iters/120s':>22}")
