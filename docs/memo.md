@@ -17,7 +17,7 @@
 
 ~~5. 2차,4차 트로터 비교와 시간T, 오차 ε, 회로깊이에 맞춘 트로터 최적화 (예를 들어 2차 트로터에서 1초 시뮬레이션을 하면 dt를 0.5로 2번 반복할 수도 있고 0.1로 10번 반복 할 수 있는데 회로 깊이, 오차를 보고 최적화를 하자는 뜻. 4차에선 dt를 길게 가져갈 수 있음)~~
    → `S₂` 와 `S₄` 를 같은 grouped 빌더로 세우고 **각 2Q 예산마다 스텝 수를 쓸어**
-   프론티어를 그립니다 (`state_averaged*.json`, `report_depth_fidelity.png`).
+   프론티어를 그립니다 (`state_averaged*.json`, `fig1_goal1_accuracy_per_depth.png`).
    결론: `S₄` 는 저게이트 구간에서 `S₂` 에 집니다 (한 스텝이 이미 120 2Q).
    `T`=0.5 에서 120 2Q 기준 62배 열세이고, 240 2Q 를 넘어가야 역전합니다.
 
@@ -46,7 +46,7 @@
 
 13. anticoncentration분포 학습 가능?
    → ~~**학습된 것이 아닙니다.**~~ 목적함수가 `L_XZ` 뿐이라 반집중에 훈련 압력이
-   없습니다. `L=2` 와 `L=3` 곡선이 겹치는 것이 증거이고(`report_goal2_hardness.png`
+   없습니다. `L=2` 와 `L=3` 곡선이 겹치는 것이 증거이고(`fig2_goal2_sampling_hardness.png`
    (a)), **타겟 상태의 성질**이지 안수의 성질이 아닙니다. 그림·문구에서
    "회로가 반집중을 학습했다" 고 쓰면 틀립니다. (질문 자체는 답이 났지만,
    "학습시킬 수 있는가" 로 읽으면 아직 안 해봤습니다.)
@@ -61,7 +61,7 @@
 
 16. Adiabatic Trotter, QITE, QAOA 공부하기(논문, 방법론 찾아보기)
    → **단열 Trotter 와 VQE 는 구현·측정 완료** (`gs_competitors.json`,
-   `report_goal3_layers.png`). **QITE 는 아직 없습니다.** 문헌 쪽으로 나온 것:
+   `fig3_goal3_ground_state_depth.png`). **QITE 는 아직 없습니다.** 문헌 쪽으로 나온 것:
    선행연구 arXiv:2510.02428 이 이미 100+ 큐비트에서 파울리 경로로 고전 훈련을
    했고(무질서 없음), ma-QAOA(2022)가 multi-angle 이득을 같은 크기로 보고했으며,
    단열의 counterdiabatic 항은 1큐비트 회전이라 2Q 통화로는 **공짜**입니다

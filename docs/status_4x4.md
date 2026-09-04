@@ -22,7 +22,7 @@
 
 **채점:** 24개 Haar 무작위 곱상태 평균 infidelity, **같은 2Q 게이트 수**의
 grouped `S₂` Trotter 와 비교 (`steps = L·k`). 근거 `goal1_advantage.json`,
-`state_averaged{,_T1.0,_T2.0}.json`, 그림 `report_depth_fidelity.png`.
+`state_averaged{,_T1.0,_T2.0}.json`, 그림 `fig1_goal1_accuracy_per_depth.png`.
 
 | `L` | 2Q (`T`=0.5) | `T`=0.5 | `T`=1.0 | `T`=2.0 |
 |--:|--:|--:|--:|--:|
@@ -65,7 +65,7 @@ grouped `S₂` Trotter 와 비교 (`steps = L·k`). 근거 `goal1_advantage.json
 
 ## 목표 ② — 절반. 어려움의 전제는 확인, 우위는 미측정
 
-근거 `sampling_hardness.json`, 그림 `report_goal2_hardness.png`.
+근거 `sampling_hardness.json`, 그림 `fig2_goal2_sampling_hardness.png`.
 
 **확인된 것 — 합성 회로는 실제로 반집중합니다.**
 
@@ -97,8 +97,8 @@ Porter–Thomas 값 `Z=2` 에 붙고 엔트로피는 Haar 7.28 bits 에 근접�
 
 ## 목표 ③ — 성립. 셋 중 가장 강합니다
 
-근거 `gs_competitors.json`, `gs_adiabatic.json`, `gs_trained_params.json`,
-그림 `report_goal3_layers.png`. 세 경로 모두 `|+…+⟩` 에서 출발해 같은
+근거 `gs_competitors.json`, `gs_trained_params.json`,
+그림 `fig3_goal3_ground_state_depth.png`. 세 경로 모두 `|+…+⟩` 에서 출발해 같은
 게이트 알파벳으로 같은 결과물(레지스터 안의 상태)을 만듭니다.
 
 **배포 가능한 실측점** — BP-PPS `L=3`, **72 2Q**, `E-E₀ = 0.4729`, `F₀ = 0.7211`.
@@ -163,9 +163,8 @@ Porter–Thomas 값 `Z=2` 에 붙고 엔트로피는 Haar 7.28 bits 에 근접�
 
 | 그림 | 상태 |
 |:--|:--|
-| `report_depth_fidelity.png` | ✅ 목표 ①의 본문 그림. 세 시각, 전 층수, 공정 지표 |
-| `report_goal3_layers.png` | ✅ 목표 ③의 본문 그림. 경쟁자 둘 + CD 유보를 제목에 |
-| `report_goal2_hardness.png` | ✅ 유효. 단 (c) 의 10×10 은 4×4 외삽 — 표기 필요 |
-| `report_noise_budget.png` | ✅ 유효 |
-| `report_goal1_deployable.png` | ⚠️ **낡음.** `L=2,3` 만 있고 `|0…0⟩` 채점이라 `T`=2.0 에서 `report_depth_fidelity.png` 와 **반대 결론**을 보여 줍니다. 지우거나 공정 지표로 다시 그릴 것 |
-| `02`·`06` (번호 그림) | ⚠️ `S₄` 곡선이 `|0…0⟩` 기준이라 `S₄` 가 실제보다 좋아 보임 |
+| `fig1_goal1_accuracy_per_depth.png` | ✅ 목표 ①의 본문 그림. 세 시각, 전 층수, 공정 지표 |
+| `fig3_goal3_ground_state_depth.png` | ✅ 목표 ③의 본문 그림. 경쟁자 둘 + CD 유보를 제목에 |
+| `fig2_goal2_sampling_hardness.png` | ✅ 유효. 단 (c) 의 10×10 은 4×4 외삽 — 표기 필요 |
+| `fig4_hardware_noise_budget.png` | ✅ 유효 |
+| `s1`~`s4` (보조 그림) | ⚠️ `s2`·`s4` 의 `S₄` 곡선이 `|0…0⟩` 기준이라 `S₄` 가 실제보다 좋아 보임 |

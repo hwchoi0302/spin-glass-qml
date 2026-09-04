@@ -33,7 +33,8 @@ import time
 
 import numpy as np
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# archived 2026-09-04: this file lives in scripts/archive/, one level deeper
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(PROJECT_ROOT, 'src'))
 
 from bppps.pauli_utils import make_observable_label                    # noqa: E402

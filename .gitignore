@@ -26,9 +26,6 @@ env/
 venv/
 ENV/
 
-# Jupyter Notebook checkpoints
-.ipynb_checkpoints
-
 # IDEs
 .vscode/
 .idea/
@@ -44,14 +41,6 @@ ENV/
 *.fdb_latexmk
 *.synctex.gz
 
-# Data files (large binaries)
-data/raw/*.h5
-data/raw/*.hdf5
-data/processed/*.h5
-data/processed/*.npy
-!data/raw/.gitkeep
-!data/processed/.gitkeep
-
 # Environment variables
 .env
 
@@ -62,3 +51,6 @@ results/*/time_sweep/_partial/
 
 # Generated hardware circuits (regenerable via scripts/01_build_hw_circuits.py)
 results/*/*.qasm
+
+# pytest
+.pytest_cache/

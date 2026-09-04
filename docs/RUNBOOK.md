@@ -169,7 +169,7 @@ python scripts/03g_state_averaged.py --n-states 24 --T 2.0 --out results/4x4/sta
 ```
 
 새 결과 파일을 스크립트의 파일 목록(`main()` 안 `for fname, L in (...)`)에
-추가한 뒤 돌리세요. 세 `T` 전부 돌려야 `report_depth_fidelity.png` 의 세 패널이
+추가한 뒤 돌리세요. 세 `T` 전부 돌려야 `fig1_goal1_accuracy_per_depth.png` 의 세 패널이
 갱신됩니다 (그 다음 `python scripts/plot_report_4x4.py`).
 
 > **`--T` 는 2026-09-03 에 고쳤습니다.** 이전에는 옵션은 있었지만 BP-PPS 블록을
@@ -193,7 +193,7 @@ python scripts/03g_state_averaged.py --n-states 24 --T 2.0 --out results/4x4/sta
 | 6 | 144 | **5.56배** | **2.28배** | **2.17배** |
 
 전체 숫자는 `results/4x4/goal1_advantage.json`, 그림은
-`plots/report_depth_fidelity.png`.
+`plots/fig1_goal1_accuracy_per_depth.png`.
 
 **같이 적어야 하는 단서 넷:**
 
@@ -227,7 +227,7 @@ python scripts/03g_state_averaged.py --n-states 24 --T 2.0 --out results/4x4/sta
 python scripts/03f_gs_competitors.py --lattice 4 --max-seconds 90
 ```
 
-**이 실행은 VQE만 채우는 게 아닙니다.** `gs_adiabatic.json` 의 단열 곡선은
+**이 실행은 VQE만 채우는 게 아닙니다.** `gs_competitors.json` 의 단열 곡선은
 `M=32`(768 2Q)에서 끝나는데, **그게 목표 ③ 대표 문장이 인용하는 바로 그
 점**입니다 — 안쪽 점이 아니라 곡선의 끝입니다. `03f_gs_competitors.py` 는
 `M=100`(2400 2Q)까지 스윕하므로 이 실행이 그 너머를 처음 보여 줍니다.
@@ -357,7 +357,7 @@ python scripts/03f_gs_competitors.py --lattice 4 --max-seconds 300 --cd-free
    (`L=12` 도 480개, 파일 크기 문제 없음). §2-6 의 코드 수정과 같은 파일입니다.
 2. **HVA `L=10` (가능하면 `L=12`) 재훈련.** 지금 값은 300초 상한에 걸려
    `L=8` 보다 **나쁘게** 나옵니다 (`dE` 0.049·0.157 대 0.013). 그래서
-   `report_goal3_layers.png` 에서 `L>8` 점을 아예 빼 두었습니다 — 그대로 두면
+   `fig3_goal3_ground_state_depth.png` 에서 `L>8` 점을 아예 빼 두었습니다 — 그대로 두면
    "안수의 한계" 로 오독됩니다. 제대로 수렴시킨 `L=10` 이 나오면 그림의 HVA
    곡선이 거기까지 이어집니다.
 

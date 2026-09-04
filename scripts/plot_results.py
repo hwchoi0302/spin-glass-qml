@@ -257,9 +257,9 @@ def plot_lattice():
     ax.set_ylabel('y', fontsize=12)
     ax.grid(True, alpha=0.2, linestyle='--')
 
-    plt.savefig(os.path.join(PLOT_DIR, '01_lattice_J_h.png'))
+    plt.savefig(os.path.join(PLOT_DIR, 's1_lattice_couplings.png'))
     plt.close()
-    print("✅ 01_lattice_J_h.png")
+    print("✅ s1_lattice_couplings.png")
 
 
 # ============================================================================
@@ -367,9 +367,9 @@ def plot_fidelity():
              ha='center', fontsize=9, color='#555555')
 
     plt.tight_layout()
-    plt.savefig(os.path.join(PLOT_DIR, '02_fidelity_comparison.png'))
+    plt.savefig(os.path.join(PLOT_DIR, 's2_fidelity_vs_time.png'))
     plt.close()
-    print("✅ 02_fidelity_comparison.png")
+    print("✅ s2_fidelity_vs_time.png")
     print(f"   {'t':>5} " + ' '.join(f'{lab[:22]:>24}' for lab, _, _, _, _ in series))
     for i, t in enumerate(time_pts):
         print(f"   {t:5.1f} " + ' '.join(
@@ -543,9 +543,9 @@ def plot_training():
             fontsize=9, color='#9C27B0')
 
     plt.tight_layout()
-    plt.savefig(os.path.join(PLOT_DIR, '04_training_curves.png'))
+    plt.savefig(os.path.join(PLOT_DIR, 's3_training_curves.png'))
     plt.close()
-    print("✅ 04_training_curves.png")
+    print("✅ s3_training_curves.png")
 
 
 # ============================================================================
@@ -700,10 +700,10 @@ def plot_depth_comparison():
                  r'uses $\lceil t/\Delta t\rceil$ steps and shrinks the step to '
                  r'land on $t$ exactly.', fontsize=11)
     plt.tight_layout(rect=[0, 0, 1, 0.93])
-    plt.savefig(os.path.join(PLOT_DIR, '06_depth_comparison.png'))
+    plt.savefig(os.path.join(PLOT_DIR, 's4_circuit_cost.png'))
     plt.close()
 
-    print("✅ 06_depth_comparison.png")
+    print("✅ s4_circuit_cost.png")
     head = ' '.join(f'{lab[:20]:>22}' for lab, _, _, _, _, _ in series)
     print(f"   {'t':>5} {'steps':>5} " + head)
     for i, t in enumerate(time_pts):

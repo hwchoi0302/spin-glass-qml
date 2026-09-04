@@ -5,7 +5,7 @@
 2. Low-energy state preparation: energy vs layers (BP-PPS Fig. 4(a) style)
 
 Part 1 no longer draws a figure. It used to emit 09_composition_fidelity.png,
-deleted on 2026-09-03: panels (a) and (b) were 02_fidelity_comparison.png's two
+deleted on 2026-09-03: panels (a) and (b) were s2_fidelity_vs_time.png's two
 panels redrawn from the same JSON, and panel (c) plotted infidelity against
 composition_fidelity.json's `*_depth` fields -- qiskit's unsorted qc.depth() --
 and annotated the result with the 4.7x "compression" that the depth audit
@@ -316,9 +316,9 @@ def plot_gs_energy_vs_layers(gs_results, E0):
     ax.legend(handles1 + handles2, labels1 + labels2, fontsize=9, loc='upper right')
 
     plt.tight_layout()
-    plt.savefig(os.path.join(PLOT_DIR, '10_gs_energy_vs_layers.png'))
+    plt.savefig(os.path.join(PLOT_DIR, 's5_gs_energy_vs_layers.png'))
     plt.close()
-    print("✅ 10_gs_energy_vs_layers.png")
+    print("✅ s5_gs_energy_vs_layers.png")
 
 
 def plot_combined_summary(comp_data, gs_results, E0):
@@ -392,9 +392,9 @@ def plot_combined_summary(comp_data, gs_results, E0):
     fig.suptitle('4×4 Spin Glass — Extended Results: Composition & Low-Energy Preparation',
                 fontsize=15, fontweight='bold', y=1.01)
     plt.tight_layout()
-    plt.savefig(os.path.join(PLOT_DIR, '11_combined_extended.png'))
+    plt.savefig(os.path.join(PLOT_DIR, 's6_combined_extended.png'))
     plt.close()
-    print("✅ 11_combined_extended.png")
+    print("✅ s6_combined_extended.png")
 
 
 # ============================================================================

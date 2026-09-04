@@ -16,14 +16,14 @@
 
 ---
 
-## 1. 격자와 커플링 — `01_lattice_J_h.png`
+## 1. 격자와 커플링 — `s1_lattice_couplings.png`
 
 `ea_bimodal`, seed 42, 16큐비트 24본드, `h = 1.0`.
 파랑이 `J = +1`, 빨강이 `J = -1` 이고, 부호가 섞여 frustration 이 생깁니다.
 frustration 은 있지만 **부호 문제는 없습니다** — 이 구분은
 [issues/02-comparison-models.md](issues/02-comparison-models.md) 를 보세요.
 
-## 2. 시간 진화 fidelity — `02_fidelity_comparison.png`
+## 2. 시간 진화 fidelity — `s2_fidelity_vs_time.png`
 
 HVA 는 `Δt = 0.5` 한 블록만 훈련하고, 긴 시간은 그 블록을 `k` 번 이어 붙여
 (`U(θ;0.5)^k`) 도달합니다. 네 곡선 모두 **정확히 같은 `t`** 에서 평가합니다.
@@ -119,7 +119,7 @@ total L_XZ = 0.01494  (32개 관측량, 관측량당 4.67e-4)
 > 결론은 위 네 줄의 스칼라가 전부입니다 — 격자 위치에 따른 경향은 아래
 > 7번 절 한 문단이면 충분했습니다. 숫자 자체는 여기 그대로 둡니다.
 
-## 4. 훈련 곡선 — `04_training_curves.png`
+## 4. 훈련 곡선 — `s3_training_curves.png`
 
 Adam 구간과 L-BFGS-B 구간이 배경색과 세로선으로 나뉘어 있습니다. 두 구간은
 성격이 다릅니다 — Adam 은 에폭마다 실제 iterate 하나를 기록하지만, scipy 의
@@ -187,7 +187,7 @@ ED 바닥에너지              -22.4722
 > fidelity 스칼라뿐이고, 사이트별 막대는 그 스칼라가 이미 말한 것을 다시
 > 그린 것이었습니다.
 
-## 6. 회로 비용과 그 값어치 — `06_depth_comparison.png`
+## 6. 회로 비용과 그 값어치 — `s4_circuit_cost.png`
 
 원래 이렇게 적혀 있었습니다: "`t = 0.5` 기준 HVA depth 15 / 2Q 72 대 Trotter
 `dt=0.1` depth 70 / 2Q 240 → 깊이 4.7배, 2큐비트 게이트 3.3배 압축."
@@ -213,7 +213,7 @@ qiskit Suzuki 합성이라 2Q 240개 — 저장소 자체 빌더는 같은 5스�
 24개 본드를 같은 4색으로 가르기 때문입니다. **따라서 깊이 축은 2Q 게이트 축을 다시
 그린 것일 뿐이고, 깊이에서의 독립된 우위는 없습니다.** 이제 패널 (a) 에 그 문장이
 직접 적혀 있습니다. 자세한 내용은 [issues/01-scale-plan.md](issues/01-scale-plan.md)
-의 "깊이 축은 독립된 우위가 아닙니다" 절. 이 논증을 담은 그림은 `report_depth_fidelity.png` 입니다 (2026-09-03,
+의 "깊이 축은 독립된 우위가 아닙니다" 절. 이 논증을 담은 그림은 `fig1_goal1_accuracy_per_depth.png` 입니다 (2026-09-03,
 `report_depth_audit.png` 대체). 예전 감사 그림의 막대 패널 (b) 는 읽을 수가
 없었습니다 — 왼쪽 쌍이 **72게이트 회로와 240게이트 회로를 서로 다른 깊이
 규약**(해석적 4색 대 qiskit 미정렬)으로 비교하고 오른쪽 쌍은 같은 72게이트를
@@ -291,7 +291,7 @@ qiskit Suzuki 합성이라 2Q 240개 — 저장소 자체 빌더는 같은 5스�
 
 ## 층 수 스윕 — 현재 없음
 
-`10_gs_energy_vs_layers.png` 와 `11_combined_extended.png` 는 수정 전(08-26)
+`s5_gs_energy_vs_layers.png` 와 `s6_combined_extended.png` 는 수정 전(08-26)
 데이터로 그린 것이라 삭제했습니다. 원본은 `gs_multi_layer.PRE-FIX.json` 으로
 남겨 두었습니다 — **추세를 볼 때만 쓰고 수치는 인용하지 마세요.**
 `plot_extended.py --part 2` (3~6시간) 가 다시 만듭니다.

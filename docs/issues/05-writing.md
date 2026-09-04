@@ -103,20 +103,16 @@
 
 | 그림 | 상태 |
 |:--|:--|
-| `report_depth_fidelity.png` | ✅ 목표 ① 본문 그림 |
-| `report_goal3_layers.png` | ✅ 목표 ③ 본문 그림. CD 유보가 제목에 박혀 있음 |
-| `report_goal2_hardness.png` | ✅ 단 (c) 의 10×10 은 4×4 외삽 — 표기 필요 |
-| `report_noise_budget.png` | ✅ |
-| `report_goal1_deployable.png` | ⚠️ **낡음.** `L=2,3` 만, `\|0…0>` 채점 → `T`=2.0 에서 `report_depth_fidelity.png` 와 **반대 결론**. 지우거나 다시 그릴 것 |
-| `02`, `06` (번호 그림) | ⚠️ `S₄` 가 `\|0…0>` 기준이라 실제보다 좋아 보임 |
+| `fig1_goal1_accuracy_per_depth.png` | ✅ 목표 ① 본문 그림 |
+| `fig3_goal3_ground_state_depth.png` | ✅ 목표 ③ 본문 그림. CD 유보가 제목에 박혀 있음 |
+| `fig2_goal2_sampling_hardness.png` | ✅ 단 (c) 의 10×10 은 4×4 외삽 — 표기 필요 |
+| `fig4_hardware_noise_budget.png` | ✅ |
+| `s2`, `s4` (보조 그림) | ⚠️ `S₄` 가 `\|0…0>` 기준이라 실제보다 좋아 보임 |
 
 ## 열린 질문
 
-- **`report_goal1_deployable.png` 를 지울 것인가.** `report_depth_fidelity.png`
-  가 같은 논증을 전 층수·공정 지표로 더 강하게 합니다. 지우는 쪽이 맞아 보이고,
-  남긴다면 반드시 다시 그려야 합니다 — **지금은 두 그림이 서로 모순**입니다.
-- **`06(a)` 를 뺄지.** `06(b)` 를 상수 `5/24` 로 다시 그린 것이라 중복입니다.
-- **`02`·`06` 의 `S₄` 곡선을 상태평균으로 다시 그릴지.**
+- **`s4_circuit_cost.png` 의 깊이 패널을 뺄지.** 게이트 수 패널을 상수 `5/24` 로 다시 그린 것이라 중복입니다.
+- **`s2`·`s4` 의 `S₄` 곡선을 상태평균으로 다시 그릴지.**
 - **HVA = multi-angle QAOA 동일성을 어디서 밝힐지.** 안 밝히면 리뷰어가 지적하고,
   본문 앞에 두면 목표 ③이 약해 보입니다. 관련연구 절이 무난해 보입니다.
 - **목표 2를 본문에 쓸 경우 arXiv:2512.24801 의 검증 절을 정독할 것.** 반집중

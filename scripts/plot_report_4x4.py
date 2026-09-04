@@ -1,16 +1,24 @@
-"""Figures for the 4x4 progress report.
+"""Report figures for the 4x4 study.
 
-Three figures that the existing plot scripts do not cover, each built only from
-committed JSON in ``results/4x4/``:
+Main figures, in goal order -- each built only from committed JSON in
+``results/4x4/``:
 
-  report_goal1_deployable.png  the goal-1 comparison on the *deployable*
-                               circuit (composed BP-PPS blocks), not the
-                               statevector ceiling
-  report_goal2_hardness.png    anticoncentration, entanglement, and the
-                               hardware-total trade-off between L=2 and L=3
-  report_goal3_layers.png      ground state at equal 2Q cost: adiabatic
-                               Trotter, VQE (2 angles/layer) and the HVA
-                               ceiling, with the deployable BP-PPS point
+  fig1_goal1_accuracy_per_depth.png   accuracy per unit depth against
+                                      gate-matched Trotter, on random product
+                                      states, at T = 0.5 / 1.0 / 2.0
+  fig2_goal2_sampling_hardness.png    anticoncentration, entanglement, and the
+                                      10x10 hardware projection
+  fig3_goal3_ground_state_depth.png   ground state at equal 2Q cost: adiabatic
+                                      Trotter, VQE (2 angles/layer), the HVA
+                                      ceiling and the deployable BP-PPS point
+  fig4_hardware_noise_budget.png      what a 3e-3 gate error costs an
+                                      observable, and why sampling dies anyway
+
+report_goal1_deployable.png was deleted on 2026-09-04. It plotted only L=2 and
+L=3 and scored them on |0...0>, so at T=2.0 it showed Trotter winning while
+fig1, on the product-state average with every trained layer, shows BP-PPS
+winning 1.20x -- two figures in one directory with opposite verdicts and no
+statement of which state either was scored on. fig1 supersedes it on both axes.
 
 Run:  .venv/bin/python scripts/plot_report_4x4.py
 """
@@ -50,72 +58,6 @@ def style(ax):
 
 # --------------------------------------------------------------------------
 # Figure 1 -- goal 1 on the deployable circuit
-# --------------------------------------------------------------------------
-def fig_goal1():
-    pilot = load('statevector_pilot.json')
-    comp3 = load('composition_fidelity.json')
-    comp2 = load('te_trained_params_L2.json')['composition']
-
-    # deployable = composed BP-PPS blocks. k blocks of L layers -> 24*L*k gates.
-    dep3 = {t: (1 - f, BONDS_4X4 * 3 * k)
-            for t, f, k in zip(comp3['time_pts'], comp3['hva_fid'], comp3['k_values'])}
-    dep2 = {r['t']: (1 - r['fidelity'], BONDS_4X4 * 2 * r['k']) for r in comp2}
-
-    fig, axes = plt.subplots(1, 3, figsize=(14.5, 4.6), sharey=True)
-    for ax, T in zip(axes, [0.5, 1.0, 2.0]):
-        # The "HVA ceiling (statevector-exact)" curve used to be drawn here and
-        # dominated all three panels, bottoming out near 3e-7 at T=0.5. It was
-        # withdrawn by a45a88a and removed from this figure on 2026-09-03.
-        #
-        # The pilot optimised its angles against ONE input state, |0...0>, so
-        # what it produced is an interpolant of that state's trajectory, not an
-        # approximation of exp(-iHT). Re-scored on the 24 random product states
-        # of 03g_state_averaged.py, the same T=0.5 L=3 circuit goes from
-        # 1.42e-5 on |0...0> to 4.27e-1 averaged -- a factor of 30000, and an
-        # average infidelity of 0.43, i.e. it destroys every state it was not
-        # fitted to. BP-PPS degrades by 1.08x on the same test because it
-        # approximates the operator.
-        #
-        # CLAUDE.md words goal 1 as evolution from an *arbitrary* product
-        # state, so the ceiling is not a bound on anything this figure claims.
-        # Leaving it in made the deployable circuits look 100x worse than a
-        # circuit that cannot be deployed at all.
-
-        # grouped Suzuki-2 Trotter, the honest hardware baseline
-        tr = pilot['trotter_grouped_s2'][str(T)]
-        x = [tr[s]['n_2q'] for s in tr]
-        y = [1 - tr[s]['fidelity'] for s in tr]
-        o = np.argsort(x)
-        ax.plot(np.array(x)[o], np.array(y)[o], '-s', color=C_TROT, lw=1.8,
-                ms=5, label='Trotter $S_2$ (grouped)')
-
-        # what we can actually deploy
-        for dep, lab, mk in ((dep3, 'BP-PPS block $L$=3, composed', 'o'),
-                             (dep2, 'BP-PPS block $L$=2, composed', 'D')):
-            if T in dep:
-                infid, n2q = dep[T]
-                ax.plot([n2q], [infid], mk, color=C_HVA, ms=11, zorder=5,
-                        mec='white', mew=1.4, label=lab)
-
-        ax.set_yscale('log')
-        ax.set_xlim(0, 400)
-        ax.set_title(f'$T$ = {T}', fontsize=13)
-        ax.set_xlabel('2Q gate count')
-        style(ax)
-
-    axes[0].set_ylabel('Infidelity $1-F$')
-    axes[0].legend(fontsize=8.5, loc='lower left', framealpha=0.95)
-    fig.suptitle('Goal 1 on the circuit we can actually deploy: composed BP-PPS '
-                 'blocks vs grouped Trotter $S_2$ at matched 2Q-gate count (4x4)',
-                 fontsize=12.5, y=0.99)
-    fig.tight_layout(rect=[0, 0, 1, 0.94])
-    p = os.path.join(OUT, 'report_goal1_deployable.png')
-    fig.savefig(p, dpi=150, facecolor='white')
-    print('wrote', p)
-
-
-# --------------------------------------------------------------------------
-# Figure 2 -- goal 2: anticoncentration, entanglement, hardware total
 # --------------------------------------------------------------------------
 def fig_goal2():
     sh = load('sampling_hardness.json')
@@ -191,7 +133,7 @@ def fig_goal2():
                  'shallower L=2 block wins once hardware error is counted',
                  fontsize=12.5, y=0.99)
     fig.tight_layout(rect=[0, 0, 1, 0.93])
-    p = os.path.join(OUT, 'report_goal2_hardness.png')
+    p = os.path.join(OUT, 'fig2_goal2_sampling_hardness.png')
     fig.savefig(p, dpi=150, facecolor='white')
     print('wrote', p)
 
@@ -389,7 +331,7 @@ def fig_goal3():
         "is a 1-qubit rotation, i.e. free in this figure's own currency (RUNBOOK 2-6)",
         fontsize=10, y=0.995)
     fig.tight_layout(rect=[0, 0.07, 1, 0.87])
-    p = os.path.join(OUT, 'report_goal3_layers.png')
+    p = os.path.join(OUT, 'fig3_goal3_ground_state_depth.png')
     fig.savefig(p, dpi=150, facecolor='white')
     print('wrote', p)
 
@@ -520,7 +462,7 @@ def fig_depth():
                  'is also the gate-count figure — depth is not a second axis.',
                  fontsize=11, y=0.99)
     fig.tight_layout(rect=[0, 0, 1, 0.90])
-    p = os.path.join(OUT, 'report_depth_fidelity.png')
+    p = os.path.join(OUT, 'fig1_goal1_accuracy_per_depth.png')
     fig.savefig(p, dpi=150, facecolor='white')
     print('wrote', p)
 
@@ -628,14 +570,13 @@ def fig_noise():
                  'and shots cannot undo that',
                  fontsize=11.5, y=0.995)
     fig.tight_layout(rect=[0, 0, 1, 0.87])
-    p = os.path.join(OUT, 'report_noise_budget.png')
+    p = os.path.join(OUT, 'fig4_hardware_noise_budget.png')
     fig.savefig(p, dpi=150, facecolor='white')
     print('wrote', p)
 
 
 if __name__ == '__main__':
-    fig_goal1()
-    fig_goal2()
-    fig_goal3()
-    fig_depth()
-    fig_noise()
+    fig_depth()    # fig1
+    fig_goal2()    # fig2
+    fig_goal3()    # fig3
+    fig_noise()    # fig4
