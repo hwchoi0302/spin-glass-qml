@@ -279,20 +279,35 @@ def stage3_train(config, model, targets, out_dir, parts=('te', 'gs')):
 
     te_record = gs_record = None
 
+    def _checkpoint(path, extra):
+        """Write the post-Adam record, so a kill in L-BFGS-B is not a total loss.
+
+        results/4x4/gs_L5_aborted.json is what this prevents: 100 Adam epochs
+        over 19.9 h, killed inside stage 2, and every angle gone because
+        nothing was written until both stages returned. The final record
+        overwrites this same path on normal completion.
+        """
+        def _write(_params, record):
+            record.update(extra)
+            record['status'] = (
+                'Adam complete, L-BFGS-B not finished. If this is the newest '
+                'record for this run, stage 2 was interrupted and these are '
+                'the last confirmed-good angles.')
+            with open(path, 'w') as f:
+                json.dump(record, f, indent=2)
+            print(f"  Checkpoint after Adam: {os.path.basename(path)}")
+        return _write
+
     if 'te' in parts:
         section("Time-evolution compression")
         te_trainer = _make_trainer(config, model, 'time_evolution',
                                    target_spos=targets)
-        # checkpoint_path: written the moment Adam finishes, overwritten with
-        # the complete record when L-BFGS-B also finishes. Without this, a
-        # kill during stage 2 discards every completed Adam epoch along with
-        # the angles that produced them -- see optimize()'s docstring and
-        # results/4x4/gs_L5_aborted.json, which is exactly that failure.
         te_path = params_path(out_dir, 'te', n_layers)
-        _, te_record = te_trainer.optimize(opt, params_init=params_init,
-                                           checkpoint_path=te_path)
-        te_record['delta_t'] = delta_t
-        te_record['n_layers'] = n_layers
+        te_extra = {'delta_t': delta_t, 'n_layers': n_layers}
+        _, te_record = te_trainer.optimize(
+            opt, params_init=params_init,
+            on_stage1_done=_checkpoint(te_path, te_extra))
+        te_record.update(te_extra)
         with open(te_path, 'w') as f:
             json.dump(te_record, f, indent=2)
         print(f"  Saved: {os.path.basename(te_path)}")
@@ -309,9 +324,11 @@ def stage3_train(config, model, targets, out_dir, parts=('te', 'gs')):
                                hamiltonian_spo=hamiltonian_spo(model),
                                initial_state=gs_init)
     gs_path = params_path(out_dir, 'gs', n_layers)
-    _, gs_record = gs_trainer.optimize(opt, params_init=params_init,
-                                       checkpoint_path=gs_path)
-    gs_record['n_layers'] = n_layers
+    gs_extra = {'n_layers': n_layers}
+    _, gs_record = gs_trainer.optimize(
+        opt, params_init=params_init,
+        on_stage1_done=_checkpoint(gs_path, gs_extra))
+    gs_record.update(gs_extra)
     with open(gs_path, 'w') as f:
         json.dump(gs_record, f, indent=2)
     print(f"  Saved: {os.path.basename(gs_path)}")
