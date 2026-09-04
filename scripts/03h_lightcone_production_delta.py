@@ -89,6 +89,18 @@ def main():
             break
 
         model = SpinGlass2D(L, L, h=1.0, coupling_type='ea_bimodal', seed=42)
+        if model.num_qubits > 32:
+            # propagate_forward_numba would now raise on its own, but stopping
+            # here says so before spending the 2.5 h that 6x6 took. The L=6 row
+            # already in this file was produced before that check existed and
+            # is corrupt: measured afterwards with the string engine, the same
+            # propagation puts support on qubit 33, so distinct Pauli strings
+            # collided on one packed key and overwrote each other. See the
+            # CORRECTION block in results/lightcone_production_delta.json.
+            print(f"  STOPPING before {L}x{L}: {model.num_qubits} qubits > 32, "
+                  f"the limit of the packed key. Widen the key first -- the "
+                  f"row this would produce is silently undercounted.")
+            break
         substep = classify_substep_bonds(model.bonds, model.Lx)
         seq = build_trotter_gate_sequence(model.num_qubits, substep, model.J,
                                           model.h, dt=args.dt, n_steps=n_steps,

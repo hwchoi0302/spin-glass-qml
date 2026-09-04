@@ -50,7 +50,8 @@
       "delta": 1e-08,
       "dt": 0.05,
       "T": 0.5,
-      "trotter_order": 4
+      "trotter_order": 4,
+      "INVALID": "key collision above 32 qubits -- see CORRECTION_2026-09-04"
     }
   ],
   "args": {
@@ -67,5 +68,13 @@
     "order": 4,
     "max_terms": 40000000,
     "mem_floor_gb": 3.0
+  },
+  "CORRECTION_2026-09-04": {
+    "what": "The L=6 row is invalid and must not be quoted. Rows L=3,4,5 stand.",
+    "why": "6x6 is 36 qubits and this run used the numba engine, whose key is x | (z << 32) -- lossless only to 32 qubits. Above that, x needs bit 32, where z's bit 0 lands: Z_0 and X_32 pack to the same uint64, and the engine writes d[key] = value, so one term overwrites the other.",
+    "is_it_actually_triggered": "Yes, measured. The same 6x6 propagation was re-run with the string engine (no packing, no collision) at looser truncation: at delta=1e-3 the support already reaches qubit 33 with 42 terms past index 31, and at delta=1e-4, 1214 terms. A looser delta keeps strictly fewer terms, so production delta=1e-8 reached it too.",
+    "direction_of_the_error": "Undercount. Colliding terms share one dict slot, so centre_terms at L=6 is lower than the truth and the coefficients of the survivors are wrong.",
+    "what_this_costs": "The saturation conclusion rested on this row alone: ratio_vs_prev 48.33 (3->4), 5.13 (4->5), 0.988 (5->6). Only the 0.988 says 'saturated', and it is the corrupt one -- and an undercount biases the ratio downward, i.e. toward the conclusion that was drawn. What survives is deceleration (48.3 -> 5.13), which is consistent with approaching saturation but does not demonstrate it. T2's cost estimate must not lean on it.",
+    "how_to_recover_it": "Widen the packed key to two uint64 per mask, or re-run 6x6 with the string engine (no size limit, but ~7x slower than numba on a 2.5 h run, and 14M string-keyed terms is several GB). scripts/03h_lightcone_production_delta.py now refuses n>32 rather than producing another bad row."
   }
 }
