@@ -39,6 +39,16 @@ write "sign problem" into a document about this Hamiltonian without checking
 `docs/issues/02-comparison-models.md` first, and never upgrade goal 3 into a
 "classically impossible" claim.
 
+**The stronger form of that rule (2026-09-04, `docs/issues/06-novelty.md`).**
+The circuit is produced by BP-PPS, which is a classical simulator. Any regime we
+can train in is a regime some classical algorithm has succeeded in, so
+**"classically impossible" is unavailable to this project in any form** — and it
+cannot be bought by changing the model. A proposal to add non-stoquastic `Y`
+terms so that QMC fails was rejected: Pauli-path methods are limited by magic,
+not by sign, so QMC would die while our own trainer lived; and QMC is this
+project's *reference value* at 100 qubits, where there is no ED. Killing it
+leaves nothing to certify the device against.
+
 The ground-state circuit starts from `|+...+>`, not `|0...0>` — see
 `configs/optimizer.yaml` (`optimizer.ground_state.initial_state`) for why the
 parity of `Pi_i X_i` makes `|0...0>` cap the fidelity at 0.5.
@@ -69,14 +79,18 @@ Update that file at the end of a session so the next one starts warm.
    `src/bppps/propagation.py` is what every other engine is checked against;
    it is never chosen for speed. Any engine may be used at any lattice size
    **once it has been proven term-for-term equal to the oracle at 4×4**
-   (TESTs 17–21). Bitpacking is *required* from 7×7 up, because the string
+   (TESTs 17–22). Bitpacking is *required* from 7×7 up, because the string
    representation does not fit; below that it is simply allowed, and 4×4
    production now trains on the sorted-array engine
    (`truncation.engine: sorted`) as well as sweeping with the numba one.
    Do not reintroduce a rule that pins an engine to a lattice size.
    **The sorted key packs x into the low 32 bits and z into the high 32, so
    it holds at most 32 qubits** — 5×5 fits, 7×7 does not and needs the key
-   widened first.
+   widened first. That limit is now *enforced*, not just documented:
+   `assert_key_width` / `pack_key` / `to_sorted_arrays` refuse anything wider
+   (TEST 22). Before that, z's high bits shifted clean out of the word and
+   distinct Paulis silently merged. Target generation runs on this engine too
+   now (`target.engine` / `time_sweep.engine`, default `sorted`).
 5. **Choose the engine by measurement, and re-measure on an idle machine.**
    GPU is *not* the default anywhere, but the reason is now a crossover, not
    a verdict. Measured 2026-09-03 on an idle desktop
@@ -90,5 +104,5 @@ Update that file at the end of a session so the next one starts warm.
    open GPU question. The comparison models' statevector is also measured
    now: 3.5–6.6× for the HVA/VQE gradient, 5.4–5.8× for the batched
    adiabatic scan. Full reasoning: `docs/issues/03-engine-performance.md`.
-6. `scripts/00_validate_small.py` must print `ALL 21 TESTS PASSED` before any
+6. `scripts/00_validate_small.py` must print `ALL 22 TESTS PASSED` before any
    result from a run is trusted. TEST 20 skipping (no CUDA device) is a pass.

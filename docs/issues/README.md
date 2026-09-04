@@ -36,6 +36,7 @@
 | [03-engine-performance.md](03-engine-performance.md) | 엔진, 비트패킹, GPU, Julia, 캐시 | **GPU 판정이 뒤집혔습니다.** 훈련은 정렬 엔진으로 이동(18배) |
 | [04-hardware-deployment.md](04-hardware-deployment.md) | IBM Nighthawk 배포, 오차 예산 | 미착수 |
 | [05-writing.md](05-writing.md) | 주장 문구, 그림, 논문 골격 | 상시. 핵심 논지 문장을 09-03 에 개정 |
+| [06-novelty.md](06-novelty.md) | **독창성과 포지셔닝** — 선행 연구가 가져간 것, 남은 차별점 | **09-04 신설.** 비스토콰스틱 전환 제안을 기각하고 무질서 축으로 방향 확정 |
 
 ## 압축 기록 (2026-09-03)
 
