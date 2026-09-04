@@ -9,6 +9,7 @@
 | | |
 |:--|:--|
 | **[../status_4x4.md](../status_4x4.md)** | **4×4 에서 세 목표를 얼마나 이뤘나 — 숫자는 전부 여기서** |
+| [../presentation_4x4.md](../presentation_4x4.md) | 발표 대본, 그림 순서대로 |
 | [../RUNBOOK.md](../RUNBOOK.md) | 데스크탑에서 지금 돌릴 것 |
 | [../benchmark_plan.md](../benchmark_plan.md) | 전체 논지와 단계 구성 |
 | [../manual.md](../manual.md) | 코드·설정 레퍼런스 |

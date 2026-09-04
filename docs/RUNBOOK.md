@@ -9,6 +9,7 @@
 > 이 문서는 앞으로 **"지금 돌릴 것"만** 담습니다.
 
 - **4×4 결과 종합: [status_4x4.md](status_4x4.md)**
+- **발표 대본 (그림 중심): [presentation_4x4.md](presentation_4x4.md)**
 - 배경과 연구 논지: [benchmark_plan.md](benchmark_plan.md)
 - 코드·설정 레퍼런스: [manual.md](manual.md)
 - 4×4 결과와 그림: [results_4x4.md](results_4x4.md)
