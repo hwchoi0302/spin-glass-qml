@@ -5,22 +5,109 @@ boundaries, square lattice. A parametrized circuit is trained **classically**
 with Backpropagating Pauli Propagation (BP-PPS, arXiv:2607.15184) and then run
 on quantum hardware (IBM Nighthawk). Target scale: 10×10 = 100 qubits.
 
-## The three goals
+## The goal (owner's decision, 2026-09-04)
 
-| # | Claim | Status |
+> **A bond-parameterised HVA, trained classically with BP-PPS, prepares the
+> ground state in a quantum register using a SHALLOWER circuit than the
+> state-of-the-art quantum ground-state-preparation algorithms.**
+
+One claim, measured in **2Q gate count at matched accuracy**. Everything else in
+this repo is either evidence for it, a competitor to beat, or parked.
+
+**This replaces the "three goals" structure.** Time evolution (old goals 1 and
+2) is **parked**, not cancelled — its results stand and are reusable as a second
+instance of the same mechanism, but no new work goes there until the claim above
+is settled. See `docs/issues/01-scale-plan.md` and `docs/benchmark_plan.md`.
+
+### What "state of the art" means here — this is the whole difficulty
+
+The competitors measured so far (linear-schedule adiabatic Trotter, single-angle
+VQE) are **honest textbook baselines, not SOTA**. The 15.0× / 1.8× numbers in
+`docs/status_4x4.md` were measured against those. **The new goal is not
+established until the SOTA versions are measured**, and two of them are known
+threats:
+
+| Family | SOTA version to beat | Why it threatens us |
 |:--|:--|:--|
-| 1 | Time evolution from an arbitrary product state, more accurate per unit depth than Trotter | primary |
-| 2 | Shallow-circuit sampling of the evolved state | primary |
-| 3 | Ground-state preparation **in a quantum register** | in parallel (see `docs/issues/02-comparison-models.md`) |
+| Adiabatic | **Counterdiabatic (CD) / DCQO, BF-DCQO** | The leading CD term for TFIM is `Σ_i α_i Y_i` — a **1-qubit** rotation, so it costs **zero** in our 2Q currency. CD adiabatic gets strictly better at the same 2Q count. |
+| Variational | **ADAPT-VQE / AVQITE** | AVQITE reports CNOT count linear in `N` with a coefficient **half** of HVA's on finite-field TFIM — aimed straight at our ansatz. |
+| Imaginary time | QITE | |
+| Single-angle VQE | — | Keep as a baseline, but **label it as a baseline**, never as SOTA. |
 
-Goal 3's claim is a **capability** one, not a complexity one: the deliverable is
-the state itself, held in the register and available as the input to further
-quantum computation. QMC returns classical bitstrings drawn from
-`|psi_0(x)|^2` and an energy; it never hands you `|psi_GS>`, and there is no
-"QMC circuit". So QMC is goal 3's **reference value**, not its competitor — it
-supplies the energy the device is checked against. The competitors are the
-other ways to get that state into a register (Trotterised adiabatic, QITE,
-VQE), and against those the claim is **circuit depth**.
+Do not write "N× shallower than competitors" in any final text before those
+rows exist. `docs/issues/02-comparison-models.md` owns this table.
+
+**Fairness rules for the comparison.** Same `H`, same qubit connectivity, same
+4-colouring, same accuracy target (`dE` or `F`), cost reported in 2Q gates.
+ADAPT/AVQITE normally choose their operator pool from hardware measurements; at
+4×4 we simulate everything classically anyway, so **run them classically and
+report the number — do not exclude them on a definitional technicality.**
+
+## What we may and may not claim
+
+Three sentences are true and usable:
+
+1. **The circuit is shallower** than the alternatives that put the same state in
+   a register — the claim above.
+2. **The state is in the register**, available as the input to further quantum
+   computation. This is a *capability* claim. QMC returns bitstrings from
+   `|psi_0(x)|^2` and an energy; it never hands you `|psi_GS>`. Write it
+   narrowly: **"QMC alone does not give you the register state."**
+3. **QMC fails on the model** — only if we switch to a non-stoquastic model
+   (see below), and only once the average-sign collapse is *measured*.
+
+### "Classically impossible" is unavailable — in any form
+
+The circuit is produced by BP-PPS, a classical simulator. To optimise `θ` the
+trainer must evaluate `E(θ) = <+|U(θ)† H U(θ)|+>` on a **classical CPU**,
+thousands of times. If that succeeds, a classical algorithm has already computed
+both the energy and a full description of the state — before any quantum
+computer is involved.
+
+The root cause is shallowness, and it is not escapable by changing the model:
+
+```
+deep enough to be classically hard  ->  too deep for the noisy device,
+                                        and BP-PPS cannot train it either
+shallow enough to run on the device ->  classically describable by the very
+                                        method that trained it
+```
+
+**The shallowness hardware requires and the shallowness classical simulation
+requires are the same condition.** So: never write "classically impossible",
+and never try to buy it by changing the Hamiltonian. "QMC fails" is a true and
+narrower statement — QMC failing is not all classical methods failing, since
+BP-PPS is a classical method that does not fail.
+
+(Caveat kept for completeness: PPS yields *expectation values*, not samples;
+sampling shallow 2D circuits is still believed classically hard. That does not
+help this goal, whose deliverable is the energy and the state.)
+
+### Frustration is not the sign problem
+
+The current `H` is **stoquastic for every `J`** — `J` sits on the diagonal and
+every off-diagonal element is `-h < 0`. Frustration is always present; a sign
+problem never is. Never write "sign problem" about this Hamiltonian without
+reading `docs/issues/02-comparison-models.md` first.
+
+### The model may change — decision is deferred, on purpose
+
+A non-stoquastic variant (**model A**: same square lattice, each bond carries one
+of `XX`/`YY`/`ZZ` with Gaussian random `J_ij`, plus a transverse field) would
+kill QMC and supply the motivation for *why anyone needs a quantum circuit for
+this state at all*. Its cost is that QMC stops being the 100-qubit reference
+value, leaving DMRG alone.
+
+**Sequencing decision: settle the depth claim on the current model first.** The
+depth claim is model-independent, and the SOTA competitor work (above) is where
+it can die. Porting to a new model before that risks wasting the port. The full
+model-A analysis, the sign-problem/frustration check, and the staged plan are in
+`docs/issues/06-novelty.md` §10.
+
+If the model does change, note that `|+...+>` loses its justification — the
+`Pi_i X_i` parity argument that makes `|0...0>` cap fidelity at 0.5 (see
+`configs/optimizer.yaml`, `optimizer.ground_state.initial_state`) does not
+survive `XX`/`YY` bonds, and the initial state must be re-chosen.
 
 **Naming (owner's decision, 2026-09-03).** The 2-angles-per-layer competitor is
 called **VQE**, never QAOA: it has QAOA's circuit shape but minimises the energy
@@ -29,29 +116,8 @@ QAOA minimises a diagonal cost whose ground state is a bitstring. The key in
 `results/4x4/gs_competitors.json` is still `qaoa` — data files are not edited
 after the fact — so **key `qaoa` == the VQE row**. Our own ansatz keeps the name
 **HVA** even though its per-bond parameterisation is the literature's
-multi-angle QAOA; the same name is already used on the time-evolution side and
-splitting it per goal would confuse more than it fixes.
-
-This is deliberately *not* a classical-intractability claim. The model is
-stoquastic for every `J`, so QMC samples the ground state without a sign
-problem. Frustration and the sign problem are different things here. Never
-write "sign problem" into a document about this Hamiltonian without checking
-`docs/issues/02-comparison-models.md` first, and never upgrade goal 3 into a
-"classically impossible" claim.
-
-**The stronger form of that rule (2026-09-04, `docs/issues/06-novelty.md`).**
-The circuit is produced by BP-PPS, which is a classical simulator. Any regime we
-can train in is a regime some classical algorithm has succeeded in, so
-**"classically impossible" is unavailable to this project in any form** — and it
-cannot be bought by changing the model. A proposal to add non-stoquastic `Y`
-terms so that QMC fails was rejected: Pauli-path methods are limited by magic,
-not by sign, so QMC would die while our own trainer lived; and QMC is this
-project's *reference value* at 100 qubits, where there is no ED. Killing it
-leaves nothing to certify the device against.
-
-The ground-state circuit starts from `|+...+>`, not `|0...0>` — see
-`configs/optimizer.yaml` (`optimizer.ground_state.initial_state`) for why the
-parity of `Pi_i X_i` makes `|0...0>` cap the fidelity at 0.5.
+multi-angle QAOA (Herrman et al. 2022); say so in Related Work rather than
+letting a reviewer find it.
 
 ## Working on this repo
 
@@ -60,7 +126,7 @@ Issues are split into topic files under **`docs/issues/`**. Read the index
 each file carries its own state, decisions already made, and open questions.
 Update that file at the end of a session so the next one starts warm.
 
-- `docs/RUNBOOK.md` — how to actually run T1 and T1-T (written for the desktop).
+- `docs/RUNBOOK.md` — how to actually run things (written for the desktop).
 - `docs/benchmark_plan.md` — the overall thesis and tier structure.
 - `docs/manual.md` — code and config reference.
 
