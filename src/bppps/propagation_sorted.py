@@ -50,6 +50,8 @@ from typing import Optional, Tuple
 
 import numpy as np
 
+from .propagation_packed import check_gate_sequence_packable
+
 MASK32 = np.uint64(0xFFFFFFFF)
 
 #: Qubits this engine can represent. The key is x in the low 32 bits and z in
@@ -287,6 +289,7 @@ def propagate_forward_sorted(keys, coeffs, gate_sequence, delta: float = 0.0, xp
     arithmetic is the same float64 operations in the same order, so the
     estimate is bit-identical.
     """
+    check_gate_sequence_packable(gate_sequence, 'the sorted-array engine')
     thresh = max(delta, 1e-15)
     track = stats is not None
     if track:
@@ -526,6 +529,7 @@ def propagate_backward_sorted(keys, a, lam, gate_sequence, n_params: int,
     Returns:
         numpy array of shape (n_params,).
     """
+    check_gate_sequence_packable(gate_sequence, 'the sorted-array engine')
     thresh = max(delta, 1e-15)
     gradients = np.zeros(n_params)
 

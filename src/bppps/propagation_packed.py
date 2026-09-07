@@ -54,6 +54,67 @@ import numpy as np
 # A packed SPO term key: (x_mask, z_mask), both Python ints (n bits used).
 PackedSPO = Dict[Tuple[int, int], float]
 
+# This module keeps x and z as separate arbitrary-precision Python ints, so it
+# has no size limit. Its two descendants do: propagation_numba.py and
+# propagation_sorted.py both fold the pair into ONE uint64 as
+# ``x | (z << 32)``, which is lossless only while both masks fit in 32 bits.
+PACKED_MAX_QUBITS = 32
+
+
+def check_gate_sequence_packable(gate_sequence, engine: str) -> int:
+    """Refuse a circuit the single-uint64 key cannot represent.
+
+    Above 32 qubits ``x | (z << 32)`` is not injective: x needs bit 32, which
+    is where z's bit 0 lands. ``Z_0`` (x=0, z=1) and ``X_32`` (x=2**32, z=0)
+    both pack to 2**32, and the engines write ``d[key] = value``, so one term
+    silently overwrites the other -- the term count comes out low and the
+    surviving coefficient belongs to the wrong Pauli string. No exception, no
+    warning, and the numbers still look plausible.
+
+    Checked here, on the gate sequence, rather than at key construction. A key
+    built at the entry point is a single-site observable with one bit set and
+    always passes; the collision only appears later, once propagation has
+    spread the support past qubit 31, and by then the numba engine is building
+    every new key inside its ``@njit`` loop with raw bit ops that never call
+    make_key(). The circuit's own qubit indices are the one quantity available
+    *before* any of that runs.
+
+    This is not hypothetical. results/4x4/../lightcone_production_delta.json's
+    L=6 row (36 qubits) was produced without this check; measured afterwards
+    with the string engine, that propagation puts support on qubit 33, so the
+    row is corrupt. See docs/issues/03-engine-performance.md.
+
+    Args:
+        gate_sequence: Gates in circuit order, ``('rx', q, theta, pidx)`` or
+            ``('rzz', qi, qj, theta, pidx)``.
+        engine: Name used in the error message.
+
+    Returns:
+        The highest qubit index the sequence touches.
+
+    Raises:
+        ValueError: if that index needs bit 32 or above.
+    """
+    hi = -1
+    for gate in gate_sequence:
+        if gate[0] == 'rx':
+            if gate[1] > hi:
+                hi = gate[1]
+        elif gate[0] == 'rzz':
+            if gate[1] > hi:
+                hi = gate[1]
+            if gate[2] > hi:
+                hi = gate[2]
+    if hi >= PACKED_MAX_QUBITS:
+        raise ValueError(
+            f"{engine} packs (x, z) into one uint64 as x | (z << 32), which "
+            f"holds at most {PACKED_MAX_QUBITS} qubits, but this circuit "
+            f"touches qubit {hi}. Distinct Pauli strings would collide on one "
+            f"key and silently overwrite each other. Use the string engine "
+            f"(propagation.py), or widen the key to two uint64 per mask "
+            f"first. 5x5 (25 qubits) fits; 6x6 (36) and 7x7 (49) do not.")
+    return hi
+
 
 def label_to_xz(label: str) -> Tuple[int, int]:
     """String Pauli label (propagation.py's convention) -> (x, z) bitmasks."""

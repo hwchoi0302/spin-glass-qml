@@ -918,8 +918,99 @@ def test_21_sorted_backward_matches_string_engine():
     print("  ✅ PASSED\n")
 
 
+def test_22_packed_engines_refuse_above_32_qubits():
+    """The uint64 key holds 32 qubits; both packed engines must say so.
 
-def test_22_packed_key_injectivity_and_target_engines():
+    ``x | (z << 32)`` stops being injective at 33 qubits: x needs bit 32,
+    which is where z's bit 0 lands, so Z_0 and X_32 pack to the same key. Both
+    engines write ``d[key] = value``, so one Pauli string overwrites the other
+    and the term count comes out low -- no exception, no warning, and the
+    numbers still look plausible.
+
+    This is a regression test for a live corruption, not a hypothetical.
+    results/lightcone_production_delta.json's L=6 row (36 qubits) was measured
+    with the numba engine before the check existed. Re-running that same
+    propagation with the string engine, which has no packing, puts support on
+    qubit 33 at delta=1e-3 already, so the collision was reached and the row is
+    invalid -- see the CORRECTION block in that file.
+
+    The check is on the *gate sequence*, not on key construction, and that
+    placement is the point: an entry-point key for a single-site observable has
+    one bit set and always passes, while the numba engine builds every later
+    key inside its @njit loop with raw bit ops that never call make_key(). The
+    circuit's qubit indices are the only quantity available before any of that
+    runs.
+    """
+    print("=" * 60)
+    print("TEST 22: packed engines refuse a circuit above 32 qubits")
+    print("=" * 60)
+    from bppps.propagation import build_trotter_gate_sequence
+    from bppps.propagation_packed import (check_gate_sequence_packable,
+                                          label_to_xz)
+    from bppps.propagation_sorted import propagate_forward_sorted, to_sorted_arrays
+    from bppps.pauli_utils import make_observable_label
+    from hamiltonians.spin_glass_2d import classify_substep_bonds
+
+    # numba is an optional accelerator (TEST 18, TEST 20 skip the same way).
+    # The guard under test lives in propagation_packed and is shared by both
+    # engines, so the sorted half below still covers it without numba; only
+    # the numba entry point goes unchecked on a machine that cannot import it.
+    try:
+        from bppps.propagation_numba import (empty_dict, make_key,
+                                             propagate_forward_numba)
+        have_numba = True
+    except ImportError as e:
+        print(f"  numba not installed ({e}) -- checking the sorted engine only")
+        have_numba = False
+
+    def seq_for(L):
+        m = SpinGlass2D(L, L, h=1.0, coupling_type='ea_bimodal', seed=42)
+        return m, build_trotter_gate_sequence(
+            m.num_qubits, classify_substep_bonds(m.bonds, m.Lx), m.J, m.h,
+            dt=0.05, n_steps=1, order=4)
+
+    # 6x6 = 36 qubits: both engines must refuse.
+    m6, seq6 = seq_for(6)
+    x, z = label_to_xz(make_observable_label(m6.num_qubits, 'X', 0))
+    runners = [('sorted',
+                lambda: propagate_forward_sorted(*to_sorted_arrays({(x, z): 1.0}),
+                                                 seq6, 1e-3, np))]
+    if have_numba:
+        runners.insert(0, ('numba',
+                           lambda: propagate_forward_numba(
+                               _single_numba_dict(empty_dict, make_key, x, z),
+                               seq6, 1e-3, None)))
+    for name, run in runners:
+        try:
+            run()
+            raise AssertionError(f"{name} engine accepted a 36-qubit circuit")
+        except ValueError:
+            pass
+        print(f"  {name} engine refuses 6x6 (36 qubits)")
+
+    # 4x4 and 5x5 stay inside the limit and must be untouched.
+    for L in (4, 5):
+        m, seq = seq_for(L)
+        xx, zz = label_to_xz(make_observable_label(m.num_qubits, 'X', 0))
+        assert check_gate_sequence_packable(seq, 'test') == m.num_qubits - 1
+        propagate_forward_sorted(*to_sorted_arrays({(xx, zz): 1.0}), seq, 1e-3, np)
+        if have_numba:
+            propagate_forward_numba(
+                _single_numba_dict(empty_dict, make_key, xx, zz), seq, 1e-3, None)
+        which = 'both engines' if have_numba else 'sorted engine'
+        print(f"  {L}x{L} ({m.num_qubits} qubits): {which} run, no false positive")
+
+    print("  \u2705 PASSED\n")
+
+
+def _single_numba_dict(empty_dict, make_key, x, z):
+    """One-term numba typed dict, for TEST 22."""
+    d = empty_dict()
+    d[make_key(x, z)] = 1.0
+    return d
+
+
+def test_23_packed_key_injectivity_and_target_engines():
     """The packed key must refuse >32 qubits, and sorted targets must match.
 
     Two failures that were both silent until now.
@@ -944,7 +1035,7 @@ def test_22_packed_key_injectivity_and_target_engines():
     from bppps.target_generator import TargetGenerator
 
     print("=" * 60)
-    print("TEST 22: packed-key injectivity, and sorted target generation")
+    print("TEST 23: packed-key injectivity, and sorted target generation")
     print("=" * 60)
 
     # --- the guard fires, at every entry point
@@ -1007,6 +1098,46 @@ def test_22_packed_key_injectivity_and_target_engines():
     print("  ✅ PASSED\n")
 
 
+def test_24_wide_engine_matches_string_engine():
+    """The multi-word key must reproduce the oracle above 32 qubits.
+
+    TEST 22 and 23 make the packed key *refuse* 7x7 and 10x10. This is the
+    engine that accepts them. propagation_wide carries the SPO as an (N, 2W)
+    uint64 matrix -- W words of x then W words of z -- and drops the
+    searchsorted lookup, which has no multi-column form, in favour of an
+    identity: the union of a gate's anti-set with its partner flip meets the
+    key set exactly on the anti-set. That identity is the whole module, so it
+    is what has to be pinned to the string engine.
+
+    The windows matter more than the term count. A random circuit spread over
+    100 qubits leaves the SPO at a couple of terms and proves nothing, so each
+    check runs on a narrow support placed where the representation can break:
+    straddling qubit 32 (the packed key's wall), entirely above it, straddling
+    qubit 64 (this module's word boundary), and entirely in the high word.
+    """
+    from bppps.propagation_wide import n_words, pick_kernel, self_check
+    from bppps.propagation_sorted import MAX_QUBITS
+
+    print("=" * 60)
+    print("TEST 24: wide (multi-word) engine vs the string oracle")
+    print("=" * 60)
+
+    assert pick_kernel(16) == 'packed' and pick_kernel(MAX_QUBITS) == 'packed'
+    assert pick_kernel(49) == 'wide' and pick_kernel(100) == 'wide'
+    assert n_words(49) == 1 and n_words(100) == 2
+    print(f"  pick_kernel: <={MAX_QUBITS} packed, 49 and 100 wide ✓")
+
+    self_check(seed=0, n=4, n_gates=80)
+    self_check(seed=0, n=49, n_gates=70, qubits=range(28, 36))   # straddles 32
+    self_check(seed=1, n=49, n_gates=70, qubits=range(41, 49))   # all above 32
+    self_check(seed=0, n=100, n_gates=70, qubits=range(60, 68))  # straddles 64
+    self_check(seed=1, n=100, n_gates=70, qubits=range(92, 100))  # high word only
+
+    print("  ✅ PASSED\n")
+
+
+
+
 if __name__ == '__main__':
     test_1_ferromagnetic()
     test_2_pauli_op_consistency()
@@ -1029,8 +1160,10 @@ if __name__ == '__main__':
     test_19_sorted_engine_matches_string_engine()
     test_20_gpu_engine_matches_string_engine()
     test_21_sorted_backward_matches_string_engine()
-    test_22_packed_key_injectivity_and_target_engines()
+    test_22_packed_engines_refuse_above_32_qubits()
+    test_23_packed_key_injectivity_and_target_engines()
+    test_24_wide_engine_matches_string_engine()
 
     print("=" * 60)
-    print("ALL 22 TESTS PASSED ✅ (18 skips without numba, 20 without a GPU)")
+    print("ALL 24 TESTS PASSED ✅ (18 skips without numba, 20 without a GPU)")
     print("=" * 60)

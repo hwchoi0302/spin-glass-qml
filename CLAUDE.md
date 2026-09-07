@@ -145,18 +145,38 @@ Update that file at the end of a session so the next one starts warm.
    `src/bppps/propagation.py` is what every other engine is checked against;
    it is never chosen for speed. Any engine may be used at any lattice size
    **once it has been proven term-for-term equal to the oracle at 4×4**
-   (TESTs 17–22). Bitpacking is *required* from 7×7 up, because the string
+   (TESTs 17–24). Bitpacking is *required* from 7×7 up, because the string
    representation does not fit; below that it is simply allowed, and 4×4
    production now trains on the sorted-array engine
    (`truncation.engine: sorted`) as well as sweeping with the numba one.
    Do not reintroduce a rule that pins an engine to a lattice size.
    **The sorted key packs x into the low 32 bits and z into the high 32, so
    it holds at most 32 qubits** — 5×5 fits, 7×7 does not and needs the key
-   widened first. That limit is now *enforced*, not just documented:
-   `assert_key_width` / `pack_key` / `to_sorted_arrays` refuse anything wider
-   (TEST 22). Before that, z's high bits shifted clean out of the word and
-   distinct Paulis silently merged. Target generation runs on this engine too
-   now (`target.engine` / `time_sweep.engine`, default `sorted`).
+   widened first. **The numba engine shares that key and that ceiling.**
+   Above 32 qubits the packing is not injective (`Z_0` and `X_32` both give
+   `2**32`) and both engines write `d[key] = value`, so one term silently
+   overwrites the other. This is not hypothetical: it invalidated the `L=6`
+   row of `results/lightcone_production_delta.json`, verified by re-running
+   that propagation on the string engine and finding support on qubit 33.
+   All three packed entry points now call
+   `propagation_packed.check_gate_sequence_packable`, which reads the
+   circuit's own qubit indices — the only quantity available before the
+   `@njit` loop starts building keys with raw bit ops that never reach
+   `make_key`. **TEST 22** is the regression test.
+   A second, complementary guard sits on key *construction* —
+   `assert_key_width` (qubit count), `pack_key` (one term), `to_sorted_arrays`
+   (a whole SPO, one vectorised max) — because a hand-built SPO never passes
+   through a gate sequence. **TEST 23.** Both are needed; neither subsumes the
+   other. Target generation runs on this engine too now
+   (`target.engine` / `time_sweep.engine`, default `sorted`).
+   **The widening is done (2026-09-04): `propagation_wide.py`** carries the
+   SPO as an `(N, 2W)` uint64 matrix — `W` words of x then `W` words of z —
+   and is pinned to the oracle at 49 and 100 qubits by **TEST 24**.
+   `pick_kernel(n)` chooses packed (`n ≤ 32`) or wide, so no caller picks by
+   hand; that hand-choice is how a silent collision got shipped. It is the
+   slower engine wherever both apply (`2W` stable argsorts per sort against
+   one), so **never select it for speed**, and its cost at 7×7 is not measured
+   yet — see `docs/issues/03-engine-performance.md`.
 5. **Choose the engine by measurement, and re-measure on an idle machine.**
    GPU is *not* the default anywhere, but the reason is now a crossover, not
    a verdict. Measured 2026-09-03 on an idle desktop
@@ -169,6 +189,12 @@ Update that file at the end of a session so the next one starts warm.
    uses. Target generation at 1.2M terms is on the winning side and is the
    open GPU question. The comparison models' statevector is also measured
    now: 3.5–6.6× for the HVA/VQE gradient, 5.4–5.8× for the batched
-   adiabatic scan. Full reasoning: `docs/issues/03-engine-performance.md`.
-6. `scripts/00_validate_small.py` must print `ALL 22 TESTS PASSED` before any
-   result from a run is trusted. TEST 20 skipping (no CUDA device) is a pass.
+   adiabatic scan. **Read those propagation multipliers as an upper bound:**
+   they come from applying one gate repeatedly to a fixed-size array, and on
+   the real target-generation walk — where the term count moves every gate and
+   truncation intervenes — the same ~300K-term point measures 3.6×, not 12.3×.
+   Full reasoning: `docs/issues/03-engine-performance.md`.
+6. `scripts/00_validate_small.py` must print `ALL 24 TESTS PASSED` before any
+   result from a run is trusted. TEST 20 skipping (no CUDA device) is a pass,
+   as is TEST 18 skipping and TEST 22 running its sorted half only when numba
+   is absent — the guard under test is shared, so the laptop still covers it.

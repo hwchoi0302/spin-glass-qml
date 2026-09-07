@@ -27,6 +27,8 @@ import numpy as np
 from numba import njit, types
 from numba.typed import Dict
 
+from .propagation_packed import check_gate_sequence_packable
+
 U64 = types.uint64
 F64 = types.float64
 MASK32 = np.uint64(0xFFFFFFFF)
@@ -157,6 +159,7 @@ def propagate_forward_numba(init_coeffs, gate_sequence: List[tuple],
     Appendix B quantity (sum of squared discarded coefficients) the string
     engine tracks, computed inside the JIT'd loop and added in here.
     """
+    check_gate_sequence_packable(gate_sequence, 'the numba engine')
     thresh = max(delta, 1e-15)
     coeffs = init_coeffs
     for gate in reversed(gate_sequence):

@@ -40,6 +40,7 @@ import numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'src'))
 
+from config import resolve_params_path                    # noqa: E402
 from hamiltonians.spin_glass_2d import SpinGlass2D          # noqa: E402
 from classical_bench.exact_diag import ExactDiag            # noqa: E402
 
@@ -170,16 +171,19 @@ def main():
     # had to tell them to. The layer count comes from the record itself, so a
     # file cannot be scored against the wrong-size plan.
     #
-    # config.resolve_params_path() prefers the layer-tagged name
-    # (te_trained_params_L{n}.json) over the legacy trained_params.json
-    # whenever both exist for the same layer count, so this scan has to agree
-    # -- otherwise a retrained L=3 would leave every other consumer reading
-    # the fresh file while this one silently kept scoring the old one.
-    # sorted() alone gets this backwards: "te_trained_params_L3.json" sorts
-    # before "trained_params.json" ('e' < 'r'), so plain last-writer-wins
-    # would let the legacy file clobber the tagged one in `found`.
+    # Which layer counts exist is discovered from the directory, but which
+    # *file* to read for a given layer count is left to
+    # config.resolve_params_path -- the same function every other consumer
+    # goes through. Deciding it here as well would duplicate the naming
+    # policy, and the two copies would already disagree: resolve_params_path
+    # prefers the layer-tagged name over the legacy trained_params.json when
+    # both exist, while a plain scan lets the legacy one win, because
+    # sorted() puts "te_trained_params_L3.json" before "trained_params.json"
+    # ('e' < 'r') and the later write to the dict is the one that survives.
+    # Nothing collides today, since no te_trained_params_L3.json exists yet --
+    # the first retrain of the production layer count would have created one.
     res_dir = os.path.join(ROOT, 'results/4x4')
-    found = {}
+    layers = set()
     for fname in sorted(os.listdir(res_dir)):
         if not (fname.startswith('te_trained_params_L')
                 or fname == 'trained_params.json'):
@@ -188,12 +192,15 @@ def main():
             rec = json.load(open(os.path.join(res_dir, fname)))
         except (ValueError, OSError):
             continue
-        if 'n_layers' not in rec:
+        if 'n_layers' in rec:
+            layers.add(int(rec['n_layers']))
+
+    found = {}
+    for L in sorted(layers):
+        path = resolve_params_path(res_dir, 'te', L)
+        if path is None:
             continue
-        L = int(rec['n_layers'])
-        if fname == 'trained_params.json' and L in found:
-            continue  # a tagged file for this L exists; it takes priority
-        found[L] = (fname, rec)
+        found[L] = (os.path.basename(path), json.load(open(path)))
 
     rows = []
     for L in sorted(found):
