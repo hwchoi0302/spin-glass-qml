@@ -918,6 +918,83 @@ def test_21_sorted_backward_matches_string_engine():
     print("  ✅ PASSED\n")
 
 
+def test_22_packed_engines_refuse_above_32_qubits():
+    """The uint64 key holds 32 qubits; both packed engines must say so.
+
+    ``x | (z << 32)`` stops being injective at 33 qubits: x needs bit 32,
+    which is where z's bit 0 lands, so Z_0 and X_32 pack to the same key. Both
+    engines write ``d[key] = value``, so one Pauli string overwrites the other
+    and the term count comes out low -- no exception, no warning, and the
+    numbers still look plausible.
+
+    This is a regression test for a live corruption, not a hypothetical.
+    results/lightcone_production_delta.json's L=6 row (36 qubits) was measured
+    with the numba engine before the check existed. Re-running that same
+    propagation with the string engine, which has no packing, puts support on
+    qubit 33 at delta=1e-3 already, so the collision was reached and the row is
+    invalid -- see the CORRECTION block in that file.
+
+    The check is on the *gate sequence*, not on key construction, and that
+    placement is the point: an entry-point key for a single-site observable has
+    one bit set and always passes, while the numba engine builds every later
+    key inside its @njit loop with raw bit ops that never call make_key(). The
+    circuit's qubit indices are the only quantity available before any of that
+    runs.
+    """
+    print("=" * 60)
+    print("TEST 22: packed engines refuse a circuit above 32 qubits")
+    print("=" * 60)
+    from bppps.propagation import build_trotter_gate_sequence
+    from bppps.propagation_numba import empty_dict, make_key, propagate_forward_numba
+    from bppps.propagation_packed import (check_gate_sequence_packable,
+                                          label_to_xz)
+    from bppps.propagation_sorted import propagate_forward_sorted, to_sorted_arrays
+    from bppps.pauli_utils import make_observable_label
+    from hamiltonians.spin_glass_2d import classify_substep_bonds
+
+    def seq_for(L):
+        m = SpinGlass2D(L, L, h=1.0, coupling_type='ea_bimodal', seed=42)
+        return m, build_trotter_gate_sequence(
+            m.num_qubits, classify_substep_bonds(m.bonds, m.Lx), m.J, m.h,
+            dt=0.05, n_steps=1, order=4)
+
+    # 6x6 = 36 qubits: both engines must refuse.
+    m6, seq6 = seq_for(6)
+    x, z = label_to_xz(make_observable_label(m6.num_qubits, 'X', 0))
+    for name, run in (
+            ('numba',
+             lambda: propagate_forward_numba(
+                 _single_numba_dict(empty_dict, make_key, x, z), seq6, 1e-3, None)),
+            ('sorted',
+             lambda: propagate_forward_sorted(*to_sorted_arrays({(x, z): 1.0}),
+                                              seq6, 1e-3, np))):
+        try:
+            run()
+            raise AssertionError(f"{name} engine accepted a 36-qubit circuit")
+        except ValueError:
+            pass
+        print(f"  {name} engine refuses 6x6 (36 qubits)")
+
+    # 4x4 and 5x5 stay inside the limit and must be untouched.
+    for L in (4, 5):
+        m, seq = seq_for(L)
+        xx, zz = label_to_xz(make_observable_label(m.num_qubits, 'X', 0))
+        assert check_gate_sequence_packable(seq, 'test') == m.num_qubits - 1
+        propagate_forward_sorted(*to_sorted_arrays({(xx, zz): 1.0}), seq, 1e-3, np)
+        propagate_forward_numba(
+            _single_numba_dict(empty_dict, make_key, xx, zz), seq, 1e-3, None)
+        print(f"  {L}x{L} ({m.num_qubits} qubits): both engines run, no false positive")
+
+    print("  \u2705 PASSED\n")
+
+
+def _single_numba_dict(empty_dict, make_key, x, z):
+    """One-term numba typed dict, for TEST 22."""
+    d = empty_dict()
+    d[make_key(x, z)] = 1.0
+    return d
+
+
 if __name__ == '__main__':
     test_1_ferromagnetic()
     test_2_pauli_op_consistency()
@@ -940,7 +1017,8 @@ if __name__ == '__main__':
     test_19_sorted_engine_matches_string_engine()
     test_20_gpu_engine_matches_string_engine()
     test_21_sorted_backward_matches_string_engine()
+    test_22_packed_engines_refuse_above_32_qubits()
 
     print("=" * 60)
-    print("ALL 21 TESTS PASSED ✅ (18 skips without numba, 20 without a GPU)")
+    print("ALL 22 TESTS PASSED ✅ (18 skips without numba, 20 without a GPU)")
     print("=" * 60)

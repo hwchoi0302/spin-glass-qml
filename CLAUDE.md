@@ -152,11 +152,25 @@ Update that file at the end of a session so the next one starts warm.
    Do not reintroduce a rule that pins an engine to a lattice size.
    **The sorted key packs x into the low 32 bits and z into the high 32, so
    it holds at most 32 qubits** — 5×5 fits, 7×7 does not and needs the key
-   widened first. That limit is now *enforced*, not just documented:
-   `assert_key_width` / `pack_key` / `to_sorted_arrays` refuse anything wider
-   (TEST 22). Before that, z's high bits shifted clean out of the word and
-   distinct Paulis silently merged. Target generation runs on this engine too
-   now (`target.engine` / `time_sweep.engine`, default `sorted`).
+   widened first. **The numba engine shares that key and that ceiling.**
+   Above 32 qubits the packing is not injective (`Z_0` and `X_32` both give
+   `2**32`) and both engines write `d[key] = value`, so one term silently
+   overwrites the other. This is not hypothetical: it invalidated the `L=6`
+   row of `results/lightcone_production_delta.json`, verified by re-running
+   that propagation on the string engine and finding support on qubit 33.
+   All three packed entry points now call
+   `propagation_packed.check_gate_sequence_packable`, which reads the
+   circuit's own qubit indices — the only quantity available before the
+   `@njit` loop starts building keys with raw bit ops that never reach
+   `make_key`. TEST 22 is the regression test.
+   Target generation runs on this engine too now
+   (`target.engine` / `time_sweep.engine`, default `sorted`).
+   ⚠️ **A second, independent guard exists uncommitted on the laptop**
+   (`assert_key_width` / `pack_key` / `to_sorted_arrays`, with its own
+   `test_22_...` of the same number). It is not on `main`. The two are
+   complementary — one checks the circuit before the `@njit` loop, the other
+   checks key construction — but they must be reconciled into one TEST 22
+   before either is quoted. See the merge commit that recorded this.
 5. **Choose the engine by measurement, and re-measure on an idle machine.**
    GPU is *not* the default anywhere, but the reason is now a crossover, not
    a verdict. Measured 2026-09-03 on an idle desktop
@@ -169,6 +183,10 @@ Update that file at the end of a session so the next one starts warm.
    uses. Target generation at 1.2M terms is on the winning side and is the
    open GPU question. The comparison models' statevector is also measured
    now: 3.5–6.6× for the HVA/VQE gradient, 5.4–5.8× for the batched
-   adiabatic scan. Full reasoning: `docs/issues/03-engine-performance.md`.
+   adiabatic scan. **Read those propagation multipliers as an upper bound:**
+   they come from applying one gate repeatedly to a fixed-size array, and on
+   the real target-generation walk — where the term count moves every gate and
+   truncation intervenes — the same ~300K-term point measures 3.6×, not 12.3×.
+   Full reasoning: `docs/issues/03-engine-performance.md`.
 6. `scripts/00_validate_small.py` must print `ALL 22 TESTS PASSED` before any
    result from a run is trusted. TEST 20 skipping (no CUDA device) is a pass.

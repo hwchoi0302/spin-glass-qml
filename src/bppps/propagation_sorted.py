@@ -50,6 +50,8 @@ from typing import Optional, Tuple
 
 import numpy as np
 
+from .propagation_packed import check_gate_sequence_packable
+
 MASK32 = np.uint64(0xFFFFFFFF)
 
 
@@ -197,6 +199,7 @@ def apply_rzz_sorted(keys, coeffs, qi: int, qj: int, theta: float, thresh: float
 def propagate_forward_sorted(keys, coeffs, gate_sequence, delta: float = 0.0, xp=np,
                              stats: Optional["object"] = None):
     """Same reverse-order walk as propagation.propagate_forward (hard rule 3)."""
+    check_gate_sequence_packable(gate_sequence, 'the sorted-array engine')
     thresh = max(delta, 1e-15)
     n_before = None
     for gate in reversed(gate_sequence):
@@ -429,6 +432,7 @@ def propagate_backward_sorted(keys, a, lam, gate_sequence, n_params: int,
     Returns:
         numpy array of shape (n_params,).
     """
+    check_gate_sequence_packable(gate_sequence, 'the sorted-array engine')
     thresh = max(delta, 1e-15)
     gradients = np.zeros(n_params)
 
