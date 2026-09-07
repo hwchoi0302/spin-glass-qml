@@ -44,6 +44,8 @@ from .propagation_packed import label_to_xz
 from .propagation_sorted import (
     MASK32 as _MASK32,
     _lookup,
+    assert_key_width,
+    pack_key,
     propagate_backward_sorted,
     propagate_forward_sorted,
     to_sorted_arrays,
@@ -133,6 +135,7 @@ class BPPPSTrainer:
                 raise NotImplementedError(
                     "the OSE regulariser has no sorted-array form; run with "
                     "engine='string' or lambda_ose=0")
+            assert_key_width(self.num_qubits, 'engine="sorted"')
             self._sorted_setup()
 
         # Adaptive truncation schedule
@@ -164,8 +167,7 @@ class BPPPSTrainer:
         """String Pauli labels -> the uint64 keys propagation_sorted uses."""
         out = np.empty(len(labels), dtype=np.uint64)
         for i, label in enumerate(labels):
-            x, z = label_to_xz(label)
-            out[i] = np.uint64(x) | (np.uint64(z) << np.uint64(32))
+            out[i] = pack_key(*label_to_xz(label))
         return out
 
     def _sorted_setup(self):
@@ -184,8 +186,7 @@ class BPPPSTrainer:
         for key in self.target_spos:
             pauli, q_str = key.split('_')
             label = make_observable_label(self.num_qubits, pauli, int(q_str))
-            x, z = label_to_xz(label)
-            self._obs_key[key] = np.uint64(x) | (np.uint64(z) << np.uint64(32))
+            self._obs_key[key] = pack_key(*label_to_xz(label))
 
         if self.hamiltonian_spo:
             self._ham_sorted = to_sorted_arrays(

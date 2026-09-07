@@ -918,6 +918,95 @@ def test_21_sorted_backward_matches_string_engine():
     print("  ✅ PASSED\n")
 
 
+
+def test_22_packed_key_injectivity_and_target_engines():
+    """The packed key must refuse >32 qubits, and sorted targets must match.
+
+    Two failures that were both silent until now.
+
+    The key packs x into the low 32 bits of a uint64 and z into the high 32,
+    so above 32 qubits z's top bits shift straight out of the word and x's
+    overlap z's field: distinct Pauli strings collide on one key and their
+    coefficients merge, with nothing raised. 4x4 and 5x5 fit; 7x7 does not.
+    That is the wall T2 hits, so it has to fail loudly rather than return a
+    plausible wrong answer hours in.
+
+    And TargetGenerator -- the most expensive step in the project -- now runs
+    on the sorted-array engine, so its output has to be pinned to the oracle
+    the same way the propagation engines are.
+    """
+    import numpy as np
+    from ansatz import HVA
+    from bppps.propagation_sorted import (
+        MAX_QUBITS, assert_key_width, pack_key, to_sorted_arrays,
+        keys_to_labels, sorted_to_labelled_spo)
+    from bppps.propagation_packed import label_to_xz, xz_to_label
+    from bppps.target_generator import TargetGenerator
+
+    print("=" * 60)
+    print("TEST 22: packed-key injectivity, and sorted target generation")
+    print("=" * 60)
+
+    # --- the guard fires, at every entry point
+    wide = 1 << 40
+    for name, call in (
+        ('assert_key_width(49)', lambda: assert_key_width(49)),
+        ('pack_key(wide, wide)', lambda: pack_key(wide, wide)),
+        ('to_sorted_arrays', lambda: to_sorted_arrays({(wide, wide): 1.0})),
+    ):
+        try:
+            call()
+        except ValueError:
+            print(f"  {name}: refused ✓")
+        else:
+            raise AssertionError(f"{name} accepted a >{MAX_QUBITS}-qubit key")
+    assert_key_width(MAX_QUBITS)          # the boundary itself must be allowed
+    print(f"  assert_key_width({MAX_QUBITS}): allowed ✓  (5x5=25 fits, 7x7=49 does not)")
+
+    # --- label <-> key bridge is exactly xz_to_label, vectorised
+    rng = np.random.default_rng(0)
+    for n in (4, 9, 16, 25):
+        want = min(200, 4 ** n // 2)
+        labels = set()
+        while len(labels) < want:
+            labels.add(''.join(rng.choice(list('IXYZ'), size=n)))
+        spo = {L: float(rng.standard_normal()) for L in sorted(labels)}
+        keys, coeffs = to_sorted_arrays({label_to_xz(L): c for L, c in spo.items()})
+        assert sorted_to_labelled_spo(keys, coeffs, n) == spo, f"round trip at n={n}"
+        ref = [xz_to_label(int(k) & 0xFFFFFFFF, int(k) >> 32, n)
+               for k in keys.tolist()]
+        assert ref == keys_to_labels(keys, n), f"vectorised labels differ at n={n}"
+    print("  keys_to_labels == xz_to_label term for term, n = 4, 9, 16, 25 ✓")
+
+    # --- sorted target generation == string target generation
+    model = SpinGlass2D(Lx=2, Ly=2, h=1.0, coupling_type='ea_bimodal', seed=7)
+    n = model.num_qubits
+    hva = HVA(num_qubits=n, bonds=model.bonds, n_layers=1, Lx=2, Ly=2, J=model.J)
+    args = dict(delta_t=0.3, dt_trotter=0.02, order=4, delta=1e-8, verbose=False)
+
+    out = {}
+    for engine in ('string', 'sorted'):
+        gen = TargetGenerator(n, model.bonds, hva.substep_bonds, model.J,
+                              model.h, engine=engine)
+        out[engine], _ = gen.generate(**args)
+
+    ref, got = out['string'], out['sorted']
+    assert set(ref) == set(got), "observable set differs"
+    worst, diff_support = 0.0, 0
+    for key in ref:
+        a, b = ref[key], got[key]
+        diff_support += len(set(a) ^ set(b))
+        for P in set(a) | set(b):
+            worst = max(worst, abs(a.get(P, 0.0) - b.get(P, 0.0)))
+    n_terms = sum(len(v) for v in ref.values())
+    print(f"  2x2 targets, {len(ref)} observables, {n_terms} terms: "
+          f"support diff={diff_support}, max coeff dev={worst:.3e}")
+    assert diff_support == 0, "sorted target generation has a different support"
+    assert worst < 1e-12, "sorted target generation diverged from the oracle"
+
+    print("  ✅ PASSED\n")
+
+
 if __name__ == '__main__':
     test_1_ferromagnetic()
     test_2_pauli_op_consistency()
@@ -940,7 +1029,8 @@ if __name__ == '__main__':
     test_19_sorted_engine_matches_string_engine()
     test_20_gpu_engine_matches_string_engine()
     test_21_sorted_backward_matches_string_engine()
+    test_22_packed_key_injectivity_and_target_engines()
 
     print("=" * 60)
-    print("ALL 21 TESTS PASSED ✅ (18 skips without numba, 20 without a GPU)")
+    print("ALL 22 TESTS PASSED ✅ (18 skips without numba, 20 without a GPU)")
     print("=" * 60)

@@ -16,6 +16,19 @@ from .propagation import (
     build_trotter_gate_sequence,
     propagate_forward,
 )
+from .propagation_packed import label_to_xz
+from .propagation_sorted import (
+    pack_key,
+    propagate_forward_sorted,
+    sorted_to_labelled_spo,
+)
+from .propagation_wide import (
+    from_wide_arrays,
+    n_words,
+    pick_kernel,
+    propagate_forward_wide,
+    to_wide_arrays,
+)
 
 
 class TargetGenerator:
@@ -33,12 +46,95 @@ class TargetGenerator:
     """
 
     def __init__(self, num_qubits: int, bonds: List[Tuple[int, int]],
-                 substep_bonds: dict, J: np.ndarray, h: float):
+                 substep_bonds: dict, J: np.ndarray, h: float,
+                 engine: str = 'string'):
         self.num_qubits = num_qubits
         self.bonds = bonds
         self.substep_bonds = substep_bonds
         self.J = J
         self.h = h
+
+        # Which propagation kernel the Trotter walk runs on. This is where the
+        # project spends most of its compute -- one 4x4 observable at the
+        # production delta=1e-8 took 822 s and one 5x5 observable 2.5 h -- and
+        # until now it was the string-dict oracle, the slowest engine there is.
+        #
+        #   'string'  propagation.py. The oracle. Unchanged, still the default.
+        #   'sorted'  propagation_sorted.py on numpy.
+        #   'gpu'     the same code with xp=cupy. Worth it only above the
+        #             crossover: cupy loses at 30K terms (0.23x) and wins at
+        #             100K (2.0x), 300K (12.3x) and 1.2M (17.3x). Target
+        #             generation is the workload that sits on the winning side.
+        #
+        # The *representation* is chosen by lattice size, not by the caller:
+        # propagation_sorted's one-uint64 key holds 32 qubits, and above that
+        # propagation_wide carries W words of x followed by W words of z. That
+        # choice used to be a footgun -- 7x7 in the packed key collided
+        # silently -- so pick_kernel() makes it automatic.
+        if engine not in ('string', 'sorted', 'gpu'):
+            raise ValueError(
+                f"engine must be 'string', 'sorted' or 'gpu', got {engine!r}")
+        self.engine = engine
+        self.xp = np
+        self.kernel = 'string' if engine == 'string' else pick_kernel(num_qubits)
+        if engine == 'gpu':
+            try:
+                import cupy as cp
+                cp.cuda.Device(0).compute_capability
+            except Exception as exc:
+                raise RuntimeError(
+                    f"engine='gpu' needs cupy and a CUDA device ({exc}). On "
+                    f"the desktop, source scripts/cuda12_env.sh first -- "
+                    f"torch's CUDA 13 wheel otherwise hides libcublas.so.12."
+                ) from exc
+            self.xp = cp
+
+    # ------------------------------------------------------------------
+    # Engine dispatch
+    # ------------------------------------------------------------------
+
+    def _seed_spo(self, label: str):
+        """The single-term starting SPO, in whichever representation."""
+        xp = self.xp
+        if self.kernel == 'string':
+            return {label: 1.0}
+        if self.kernel == 'packed':
+            return (xp.asarray([pack_key(*label_to_xz(label))],
+                               dtype=xp.uint64),
+                    xp.asarray([1.0], dtype=xp.float64))
+        return to_wide_arrays({label: 1.0}, self.num_qubits, xp)
+
+    def _advance(self, spo, gate_seq, delta, stats):
+        """One propagation of `spo` through `gate_seq`, engine-agnostic."""
+        if self.kernel == 'string':
+            return propagate_forward(spo, gate_seq, delta, stats)
+        keys, coeffs = spo
+        if self.kernel == 'packed':
+            return propagate_forward_sorted(keys, coeffs, gate_seq, delta,
+                                            xp=self.xp, stats=stats)
+        return propagate_forward_wide(keys, coeffs, gate_seq, self.num_qubits,
+                                      delta, xp=self.xp, stats=stats)
+
+    @staticmethod
+    def _size(spo) -> int:
+        return len(spo) if isinstance(spo, dict) else int(spo[0].shape[0])
+
+    def _as_labelled(self, spo) -> SPO:
+        """Whatever the engine produced -> {label: coeff}, the shared shape.
+
+        The array engines are converted back here rather than kept native
+        because every consumer -- the JSON target cache, the trainer's own
+        string->key setup, the verification scripts -- speaks labels. That
+        round trip is real waste, but it is a fixed cost per snapshot against
+        a propagation that dominates it, and removing it means changing the
+        cache format (see docs/issues/03-engine-performance.md, "타겟 캐시 형식").
+        """
+        if isinstance(spo, dict):
+            return spo
+        if self.kernel == 'packed':
+            return sorted_to_labelled_spo(spo[0], spo[1], self.num_qubits,
+                                          xp=self.xp)
+        return from_wide_arrays(spo[0], spo[1], self.num_qubits, xp=self.xp)
 
     def generate(self, delta_t: float, dt_trotter: float = 0.001,
                  order: int = 4, delta: float = 1e-8,
@@ -88,14 +184,15 @@ class TargetGenerator:
         for idx, (pauli, q) in enumerate(obs_list):
             key = f"{pauli}_{q}"
             label = make_observable_label(self.num_qubits, pauli, q)
-            init_spo = {label: 1.0}
 
-            evolved = propagate_forward(init_spo, gate_seq, delta, stats)
-            targets[key] = evolved
+            evolved = self._advance(self._seed_spo(label), gate_seq, delta,
+                                    stats)
+            n_terms = self._size(evolved)
+            targets[key] = self._as_labelled(evolved)
 
             if verbose and (idx + 1) % max(1, len(obs_list) // 10) == 0:
                 print(f"    [{idx+1}/{len(obs_list)}] {key}: "
-                      f"{len(evolved)} Pauli terms")
+                      f"{n_terms} Pauli terms")
 
         if verbose:
             total_terms = sum(len(v) for v in targets.values())
@@ -164,7 +261,7 @@ class TargetGenerator:
         running = {}
         for pauli, q in obs_list:
             label = make_observable_label(self.num_qubits, pauli, q)
-            running[f"{pauli}_{q}"] = {label: 1.0}
+            running[f"{pauli}_{q}"] = self._seed_spo(label)
 
         stats = TruncationStats()
         series: Dict[int, Dict[str, SPO]] = {}
@@ -172,13 +269,15 @@ class TargetGenerator:
 
         for k in range(1, k_max + 1):
             for key in running:
-                running[key] = propagate_forward(running[key], block, delta, stats)
+                running[key] = self._advance(running[key], block, delta, stats)
 
             if k in snapshots:
-                series[k] = {key: dict(spo) for key, spo in running.items()}
+                sizes = [self._size(spo) for spo in running.values()]
+                series[k] = {key: self._as_labelled(spo)
+                             for key, spo in running.items()}
                 if verbose:
-                    total = sum(len(v) for v in series[k].values())
-                    largest = max(len(v) for v in series[k].values())
+                    total = sum(sizes)
+                    largest = max(sizes)
                     print(f"    k={k:3d} (T={k * delta_t:5.2f}): "
                           f"{total:9d} terms total, {largest:8d} largest, "
                           f"eps_trunc={stats.error_estimate:.3e}, "

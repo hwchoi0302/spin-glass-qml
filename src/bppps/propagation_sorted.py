@@ -52,6 +52,42 @@ import numpy as np
 
 MASK32 = np.uint64(0xFFFFFFFF)
 
+#: Qubits this engine can represent. The key is x in the low 32 bits and z in
+#: the high 32, so the packing x | (z << 32) is injective only while both
+#: masks fit in 32 bits. At 33 qubits and up, z's top bits shift out of the
+#: uint64 entirely and x's overlap z's field: two different Pauli strings
+#: collide on one key, their coefficients are silently merged, and every
+#: result downstream is wrong with nothing raised. 4x4 (16) and 5x5 (25) fit;
+#: 7x7 (49) and 10x10 (100) do not and need the key widened first --
+#: docs/issues/03-engine-performance.md, "정렬 키를 32큐비트 위로 넓히는 방법".
+MAX_QUBITS = 32
+
+
+def assert_key_width(n_qubits: int, what: str = 'the sorted-array engine'):
+    """Refuse a lattice this engine cannot represent injectively.
+
+    Call this at setup, from anywhere that knows the qubit count, so the
+    failure lands before hours of propagation rather than inside it. The
+    per-term guard in to_sorted_arrays() is the backstop for inputs that
+    arrive without a stated qubit count.
+    """
+    if n_qubits > MAX_QUBITS:
+        raise ValueError(
+            f"{what} packs x and z into one uint64 (x low 32 bits, z high "
+            f"32), so it holds at most {MAX_QUBITS} qubits; got {n_qubits}. "
+            f"Above that the key is not injective and results are silently "
+            f"wrong. Use the string-dict engine (propagation.py), or widen "
+            f"the key first -- see docs/issues/03-engine-performance.md.")
+
+
+def pack_key(x: int, z: int) -> np.uint64:
+    """One (x mask, z mask) -> its uint64 key, refusing a colliding pack."""
+    if (x >> MAX_QUBITS) or (z >> MAX_QUBITS):
+        raise ValueError(
+            f"Pauli masks x={x:#x}, z={z:#x} do not fit the "
+            f"{MAX_QUBITS}-qubit packed key; see assert_key_width().")
+    return np.uint64(x) | (np.uint64(z) << np.uint64(32))
+
 
 def to_sorted_arrays(packed: dict, xp=np):
     """{(x,z): coeff} -> (sorted keys array, aligned coeffs array).
@@ -62,16 +98,59 @@ def to_sorted_arrays(packed: dict, xp=np):
     that is not sorted at all, which silently breaks every searchsorted in
     this module. The only in-tree caller used to be self_check() with a single
     term, where any order is sorted, so nothing caught it.
+
+    The masks are checked against MAX_QUBITS before packing, in one vectorised
+    max() rather than per term.
     """
     if not packed:
         return xp.zeros(0, dtype=xp.uint64), xp.zeros(0, dtype=xp.float64)
-    items = sorted(
-        ((np.uint64(x) | (np.uint64(z) << np.uint64(32)), c)
-         for (x, z), c in packed.items()),
-        key=lambda kc: int(kc[0]))
-    keys = xp.asarray([k for k, _ in items], dtype=xp.uint64)
-    coeffs = xp.asarray([c for _, c in items], dtype=xp.float64)
-    return keys, coeffs
+
+    n = len(packed)
+    xs = np.fromiter((x for x, _ in packed), dtype=np.uint64, count=n)
+    zs = np.fromiter((z for _, z in packed), dtype=np.uint64, count=n)
+    vals = np.fromiter(packed.values(), dtype=np.float64, count=n)
+
+    limit = np.uint64(1) << np.uint64(MAX_QUBITS)
+    if xs.max() >= limit or zs.max() >= limit:
+        raise ValueError(
+            f"SPO contains Pauli masks wider than {MAX_QUBITS} qubits "
+            f"(max x bit {int(xs.max()).bit_length()}, max z bit "
+            f"{int(zs.max()).bit_length()}); the packed key would collide. "
+            f"See assert_key_width() and "
+            f"docs/issues/03-engine-performance.md.")
+
+    keys = xs | (zs << np.uint64(32))
+    order = np.argsort(keys, kind='stable')
+    return xp.asarray(keys[order]), xp.asarray(vals[order])
+
+
+def keys_to_labels(keys, n_qubits: int, xp=np):
+    """Packed keys -> propagation.py's string Pauli labels, vectorised.
+
+    propagation_packed.xz_to_label loops over n characters per term in Python,
+    which is fine for one string and not fine for the multi-million-term SPOs
+    target generation produces (a 2.8M-term 4x4 snapshot spends about a minute
+    in it). This builds the whole (N, n) character matrix at once and views it
+    as fixed-width bytes, which is the same output in about a second.
+    """
+    keys_h = keys.get() if xp is not np else np.asarray(keys)
+    if keys_h.size == 0:
+        return []
+    pos = np.arange(n_qubits, dtype=np.uint64)
+    x = (keys_h[:, None] & MASK32) >> pos
+    z = ((keys_h[:, None] >> np.uint64(32)) & MASK32) >> pos
+    # code 0=I, 1=X, 2=Z, 3=Y -- exactly label_to_xz's convention inverted.
+    code = (x & np.uint64(1)) + 2 * (z & np.uint64(1))
+    table = np.frombuffer(b'IXZY', dtype=np.uint8)
+    chars = table[code.astype(np.intp)]
+    return np.ascontiguousarray(chars).view(f'S{n_qubits}').ravel().astype(str).tolist()
+
+
+def sorted_to_labelled_spo(keys, coeffs, n_qubits: int, xp=np) -> dict:
+    """(keys, coeffs) -> {label: coeff}, the dict shape the rest of the tree uses."""
+    labels = keys_to_labels(keys, n_qubits, xp)
+    vals = (coeffs.get() if xp is not np else np.asarray(coeffs))
+    return dict(zip(labels, vals.tolist()))
 
 
 def from_sorted_arrays(keys, coeffs, xp=np) -> dict:
@@ -196,12 +275,25 @@ def apply_rzz_sorted(keys, coeffs, qi: int, qj: int, theta: float, thresh: float
 
 def propagate_forward_sorted(keys, coeffs, gate_sequence, delta: float = 0.0, xp=np,
                              stats: Optional["object"] = None):
-    """Same reverse-order walk as propagation.propagate_forward (hard rule 3)."""
+    """Same reverse-order walk as propagation.propagate_forward (hard rule 3).
+
+    The truncation accounting stays on the device. It used to do
+    `float(xp.sum(coeffs ** 2))` twice per gate, and under cupy each of those
+    is a device-to-host sync that drains the pipeline -- 28,000 of them for a
+    14,000-gate target chunk, on the one workload that most wants the GPU. The
+    running sum is now a 0-d device array converted once at the end, and each
+    gate's output norm is carried forward as the next gate's input norm
+    instead of being recomputed, halving the reductions as well. On numpy the
+    arithmetic is the same float64 operations in the same order, so the
+    estimate is bit-identical.
+    """
     thresh = max(delta, 1e-15)
-    n_before = None
+    track = stats is not None
+    if track:
+        lost = xp.zeros((), dtype=xp.float64)
+        n_gates = 0
+        n_cur = xp.sum(coeffs ** 2) if keys.shape[0] else xp.zeros((), dtype=xp.float64)
     for gate in reversed(gate_sequence):
-        if stats is not None:
-            n_before = float(xp.sum(coeffs ** 2)) if keys.shape[0] else 0.0
         if gate[0] == 'rx':
             _, q, theta, _ = gate
             keys, coeffs = apply_rx_sorted(keys, coeffs, q, theta, thresh, xp)
@@ -210,12 +302,17 @@ def propagate_forward_sorted(keys, coeffs, gate_sequence, delta: float = 0.0, xp
             keys, coeffs = apply_rzz_sorted(keys, coeffs, qi, qj, theta, thresh, xp)
         else:
             continue
-        if stats is not None:
+        if track:
             # Norm is exactly preserved by an exact rotation; whatever norm
             # was lost this gate was discarded by the threshold.
-            n_after = float(xp.sum(coeffs ** 2)) if keys.shape[0] else 0.0
-            stats.sum_sq += max(0.0, n_before - n_after)
-            stats.n_gates += 1
+            n_after = (xp.sum(coeffs ** 2) if keys.shape[0]
+                       else xp.zeros((), dtype=xp.float64))
+            lost = lost + xp.maximum(n_cur - n_after, 0.0)
+            n_cur = n_after
+            n_gates += 1
+    if track:
+        stats.sum_sq += float(lost)
+        stats.n_gates += n_gates
     return keys, coeffs
 
 

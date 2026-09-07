@@ -128,7 +128,9 @@ def stage1_targets(config, model, sw_dir):
     generator = TargetGenerator(
         num_qubits=model.num_qubits, bonds=model.bonds,
         substep_bonds=model.substep_bonds, J=model.J, h=model.h,
+        engine=ts.get('engine', 'string'),
     )
+    print(f"  engine: {generator.engine} (kernel: {generator.kernel})")
 
     def checkpoint(k, targets_k, stats):
         payload = {key: {p: float(c) for p, c in spo.items()}

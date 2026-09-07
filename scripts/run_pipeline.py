@@ -123,7 +123,9 @@ def stage1_targets(config, model, out_dir):
     generator = TargetGenerator(
         num_qubits=model.num_qubits, bonds=model.bonds,
         substep_bonds=model.substep_bonds, J=model.J, h=model.h,
+        engine=tgt.get('engine', 'string'),
     )
+    print(f"  engine: {generator.engine} (kernel: {generator.kernel})")
     t0 = time.time()
     targets, stats = generator.generate(
         delta_t=tgt['delta_t'], dt_trotter=tgt['dt'],

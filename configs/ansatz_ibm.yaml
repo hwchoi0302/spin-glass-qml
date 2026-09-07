@@ -21,6 +21,22 @@ target:
   trotter_order: 4
   cutoff: 1.0e-8
   observables: "XZ"
+  # Which propagation kernel generates the targets. This is the single most
+  # expensive step in the project, and it ran on the string-dict oracle until
+  # 2026-09-04.
+  #   string  propagation.py, the oracle. Slowest; keep for cross-checks.
+  #   sorted  propagation_sorted.py on numpy. Term-for-term identical output
+  #           (verified at 2x2 and 3x3, max coefficient deviation exactly 0.0);
+  #           8.4x at 500K terms, and a small loss below ~10K terms.
+  #   gpu     the same code with xp=cupy. Above the crossover only -- cupy
+  #           loses at 30K terms and wins 17.3x at 1.2M. Needs
+  #           `source scripts/cuda12_env.sh` first on the desktop.
+  # Caveat: the truncation *estimate* eps_trunc is not identical between
+  # engines (the array engines take it as a norm difference per gate, the
+  # string engine accumulates discarded terms). The SPOs are identical; the
+  # estimate agrees to ~4 digits at 1e-5 and is unreliable for either engine
+  # once the discarded norm approaches float64 cancellation against 1.0.
+  engine: sorted
 
 # Trotter circuits that could actually be run on hardware, used as the
 # depth-compression baseline. The dt=0.001 target above is NOT a baseline.
